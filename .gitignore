@@ -1,0 +1,21 @@
+# --- Unreal Engine Standard ---
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vscode/
+.vs/
+*.sln
+*.obj
+*.pdb
+*.suo
+
+# --- Your Specific Request ---
+# 忽略 Content 下的 Assets 文件夹
+Content/Assets/
+
+# --- Others ---
+*.user
+*.useroscc
+*.sln.docstates
