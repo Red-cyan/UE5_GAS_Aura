@@ -19,3 +19,11 @@ Content/Assets/
 *.user
 *.useroscc
 *.sln.docstates
+
+
+# --- IDE Specific (根据你的截图补充) ---
+.idea/
+.vsconfig
+*.user
+*.useroscc
+*.sln.docstates
