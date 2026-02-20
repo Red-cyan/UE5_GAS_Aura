@@ -27,6 +27,7 @@ void AAuraCharacter::PossessedBy(AController* NewController)
 	Super::PossessedBy(NewController);
 	//为服务器初始化Ability actor info
 	InitAbilityActorInfo();
+	AddCharacterAbilities();
 	
 }
 
