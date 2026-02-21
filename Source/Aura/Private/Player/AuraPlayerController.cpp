@@ -94,36 +94,18 @@ void AAuraPlayerController::Move(const FInputActionValue& InputActionValue)
 
 void AAuraPlayerController::CursorTrace()
 {
-	FHitResult CursorHit;
+	
 	GetHitResultUnderCursor(ECC_Visibility,false,CursorHit);
 	if (!CursorHit.bBlockingHit) return;
 	
 	LastActor = ThisActor;
 	ThisActor = Cast<IEnemyInterface>(CursorHit.GetActor());
 	
-	if (LastActor == nullptr)
+	if (LastActor !=  ThisActor)
 	{
-		if (ThisActor != nullptr)
-		{
-			ThisActor->HighLightActor();
-		}
+		if (LastActor) LastActor->UnHighLightActor();
+		if (ThisActor) ThisActor->HighLightActor();
 	}
-	else
-	{
-		if (ThisActor == nullptr )
-		{
-			LastActor->UnHighLightActor();
-		}else
-		{
-			if (LastActor != ThisActor)
-			{
-				LastActor->UnHighLightActor();
-				ThisActor->HighLightActor();
-			}
-			
-		}
-	}
-	
 }
 
 void AAuraPlayerController::AbilityInputTagPressed(FGameplayTag InputTag)
@@ -142,23 +124,17 @@ void AAuraPlayerController::AbilityInputTagReleased(FGameplayTag InputTag)
 	//如果不是鼠标左键释放，就释放技能
 	if (!InputTag.MatchesTagExact(FAuraGameplayTags::Get().InputTag_LMB))
 	{
-		if (GetASC())
-		{
-			GetASC()->AbilityInputTagReleased(InputTag);
-		}
+		if (GetASC()) GetASC()->AbilityInputTagReleased(InputTag);
 		return;
 	}
 	//如果锁定目标了，也释放技能
 	if (bTargeting)
 	{
-		if (GetASC())
-		{
-			GetASC()->AbilityInputTagReleased(InputTag);
-		}
+		if (GetASC()) GetASC()->AbilityInputTagReleased(InputTag);
 	}//如果是鼠标左键点击后释放，进行点击移动
 	else
 	{
-		APawn* ControlledPawn = GetPawn();
+		const APawn* ControlledPawn = GetPawn();
 		if (FollowTime <= ShortPressThreshold && ControlledPawn)
 		{
 			// 短按时，也要获取一下鼠标点在了哪里！
@@ -175,7 +151,6 @@ void AAuraPlayerController::AbilityInputTagReleased(FGameplayTag InputTag)
 					for (const FVector& PointLoc : NavPath->PathPoints)
 					{
 						Spline->AddSplinePoint(PointLoc,ESplineCoordinateSpace::World);
-						DrawDebugSphere(GetWorld(),PointLoc,8.f,8,FColor::Green,false,5.f);
 					}
 					CachedDestination = NavPath->PathPoints[NavPath->PathPoints.Num() - 1];
 					bAutoRunning = true;
@@ -194,29 +169,19 @@ void AAuraPlayerController::AbilityInputTagHeld(FGameplayTag InputTag)
 	//如果不是鼠标左键长按，就释放技能
 	if (!InputTag.MatchesTagExact(FAuraGameplayTags::Get().InputTag_LMB))
 	{
-		if (GetASC())
-		{
-			GetASC()->AbilityInputTagHeld(InputTag);
-		}
+		if (GetASC()) GetASC()->AbilityInputTagHeld(InputTag);
 		return;
 	}
 	//如果锁定目标了，也释放技能
 	if (bTargeting)
 	{
-		if (GetASC())
-		{
-			GetASC()->AbilityInputTagHeld(InputTag);
-		}
+		if (GetASC())GetASC()->AbilityInputTagHeld(InputTag);
 	}
 	//如果是鼠标左键长按，就移动过去（获取点击的位置和actor现在的位置，向量相减归一化）
 	else
 	{
 		FollowTime += GetWorld()->GetDeltaSeconds();
-		FHitResult Hit;
-		if (GetHitResultUnderCursor(ECC_Visibility,false,Hit))
-		{
-			CachedDestination = Hit.ImpactPoint;
-		}
+		if (CursorHit.bBlockingHit) CachedDestination = CursorHit.ImpactPoint;
 		if (APawn* ControlledPawn = GetPawn())
 		{
 			const FVector WorldDirection = (CachedDestination - ControlledPawn->GetActorLocation()).GetSafeNormal();
