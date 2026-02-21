@@ -3,6 +3,7 @@
 
 #include "Character/AuraCharacterBase.h"
 #include "AbilitySystemComponent.h"
+#include "BlendSpaceAnalysis.h"
 #include "AbilitySystem/AuraAbilitySystemComponent.h"
 
 
@@ -25,6 +26,12 @@ UAbilitySystemComponent* AAuraCharacterBase::GetAbilitySystemComponent() const
 void AAuraCharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
+	
+}
+
+FVector AAuraCharacterBase::GetCombatSocketLocation()
+{
+	return Weapon->GetSocketLocation(WeaponTipSocketName);
 	
 }
 
