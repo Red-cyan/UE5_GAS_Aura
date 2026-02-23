@@ -115,7 +115,13 @@ void FAuraGameplayTags::InitializeNativeGameplayTags()
 	
 	GameplayTags.Damage = UGameplayTagsManager::Get().AddNativeGameplayTag(
 	FName("Damage"),
-	FString(TEXT("上海"))
+	FString(TEXT("伤害"))
+	);
+	
+	
+	GameplayTags.Effects_HitReact = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Effects.HitReact"),
+	FString(TEXT("受击动画"))
 	);
 	
 }
