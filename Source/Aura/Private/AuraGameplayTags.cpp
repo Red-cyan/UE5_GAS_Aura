@@ -112,6 +112,12 @@ void FAuraGameplayTags::InitializeNativeGameplayTags()
 	FName("InputTag.4"),
 	FString(TEXT("键盘数字4的输入标签"))
 	);
+	
+	GameplayTags.Damage = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Damage"),
+	FString(TEXT("上海"))
+	);
+	
 }
 
 
