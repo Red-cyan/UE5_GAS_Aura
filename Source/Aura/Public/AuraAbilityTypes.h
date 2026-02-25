@@ -10,10 +10,10 @@ struct  FAuraGameplayEffectContext : public FGameplayEffectContext
 
 public:
 	bool IsCriticalHit() const{ return bIsCriticalHit; }
-	bool IsBlockHit() const{ return bIsBlockHit; }
+	bool IsBlockedHit() const{ return bIsBlockHit; }
 	
-	void SetCriticalHit(bool bInIsCriticalHit){ bIsCriticalHit = bInIsCriticalHit; }
-	void SetBlockHit(bool bInIsBlockHit){ bIsBlockHit = bInIsBlockHit; }
+	void SetIsCriticalHit(bool bInIsCriticalHit){ bIsCriticalHit = bInIsCriticalHit; }
+	void SetIsBlockHit(bool bInIsBlockHit){ bIsBlockHit = bInIsBlockHit; }
 	
 	virtual UScriptStruct* GetScriptStruct() const
 	{
