@@ -184,6 +184,14 @@ void FAuraGameplayTags::InitializeNativeGameplayTags()
 	FString(TEXT("受击动画"))
 	);
 	
+	/*
+	 * Abilities
+	 */
+	GameplayTags.Abilities_Attack = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Abilities.Attack"),
+	FString(TEXT("攻击标签"))
+	);
+	
 }
 
 
