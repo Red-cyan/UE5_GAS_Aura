@@ -192,6 +192,23 @@ void FAuraGameplayTags::InitializeNativeGameplayTags()
 	FString(TEXT("攻击标签"))
 	);
 	
+	/*
+	* 蒙太奇
+	*/
+	GameplayTags.Montage_Attack_Weapon = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.Weapon"),
+	FString(TEXT("武器攻击"))
+	);
+	
+	GameplayTags.Montage_Attack_LeftHand = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.LeftHand"),
+	FString(TEXT("左手攻击"))
+	);
+	
+	GameplayTags.Montage_Attack_RightHand = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.RightHand"),
+	FString(TEXT("右手攻击"))
+	);
 }
 
 
