@@ -1,0 +1,4998 @@
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura.Target.cs
+================================================================================
+
+
+
+using UnrealBuildTool;
+using System.Collections.Generic;
+
+public class AuraTarget : TargetRules
+{
+	public AuraTarget(TargetInfo Target) : base(Target)
+	{
+		Type = TargetType.Game;
+		DefaultBuildSettings = BuildSettingsVersion.V5;
+
+		ExtraModuleNames.AddRange( new string[] { "Aura" } );
+	}
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\AuraEditor.Target.cs
+================================================================================
+
+
+
+using UnrealBuildTool;
+using System.Collections.Generic;
+
+public class AuraEditorTarget : TargetRules
+{
+	public AuraEditorTarget(TargetInfo Target) : base(Target)
+	{
+		Type = TargetType.Editor;
+		DefaultBuildSettings = BuildSettingsVersion.V5;
+
+		ExtraModuleNames.AddRange( new string[] { "Aura" } );
+	}
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Aura.Build.cs
+================================================================================
+
+
+
+using UnrealBuildTool;
+
+public class Aura : ModuleRules
+{
+	public Aura(ReadOnlyTargetRules Target) : base(Target)
+	{
+		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+	
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore","EnhancedInput","GameplayAbilities" });
+
+		PrivateDependencyModuleNames.AddRange(new string[] {"GameplayTags","GameplayTasks","NavigationSystem","Niagara","AIModule" });
+
+		// Uncomment if you are using Slate UI
+		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
+		
+		// Uncomment if you are using online features
+		// PrivateDependencyModuleNames.Add("OnlineSubsystem");
+
+		// To include OnlineSubsystemSteam, add it to the plugins section in your uproject file with the Enabled attribute set to true
+	}
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Aura.cpp
+================================================================================
+
+
+
+#include "Aura.h"
+#include "Modules/ModuleManager.h"
+
+IMPLEMENT_PRIMARY_GAME_MODULE( FDefaultGameModuleImpl, Aura, "Aura" );
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Aura.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+
+#define CUSTOM_DEPTH_RED 250
+
+#define ECC_Projectile ECollisionChannel::ECC_GameTraceChannel1
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AuraAbilityTypes.cpp
+================================================================================
+
+﻿#include "AuraAbilityTypes.h"
+
+
+bool FAuraGameplayEffectContext::NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)
+{
+	uint32 RepBits = 0;
+	if (Ar.IsSaving())
+	{
+		if (bReplicateInstigator && Instigator.IsValid())
+		{
+			RepBits |= 1 << 0;
+		}
+		if (bReplicateEffectCauser && EffectCauser.IsValid() )
+		{
+			RepBits |= 1 << 1;
+		}
+		if (AbilityCDO.IsValid())
+		{
+			RepBits |= 1 << 2;
+		}
+		if (bReplicateSourceObject && SourceObject.IsValid())
+		{
+			RepBits |= 1 << 3;
+		}
+		if (Actors.Num() > 0)
+		{
+			RepBits |= 1 << 4;
+		}
+		if (HitResult.IsValid())
+		{
+			RepBits |= 1 << 5;
+		}
+		if (bHasWorldOrigin)
+		{
+			RepBits |= 1 << 6;
+		}
+		if (bIsBlockHit)
+		{
+			RepBits |= 1 << 7;
+		}
+		if (bIsCriticalHit)
+		{
+			RepBits |= 1 << 8;
+		}
+	}
+	Ar.SerializeBits(&RepBits, 9);
+	
+	if (RepBits & (1 << 0))
+	{
+		Ar << Instigator;
+	}
+	if (RepBits & (1 << 1))
+	{
+		Ar << EffectCauser;
+	}
+	if (RepBits & (1 << 2))
+	{
+		Ar << AbilityCDO;
+	}
+	if (RepBits & (1 << 3))
+	{
+		Ar << SourceObject;
+	}
+	if (RepBits & (1 << 4))
+	{
+		SafeNetSerializeTArray_Default<31>(Ar, Actors);
+	}
+	if (RepBits & (1 << 5))
+	{
+		if (Ar.IsLoading())
+		{
+			if (!HitResult.IsValid())
+			{
+				HitResult = TSharedPtr<FHitResult>(new FHitResult());
+			}
+		}
+		HitResult->NetSerialize(Ar, Map, bOutSuccess);
+	}
+	if (RepBits & (1 << 6))
+	{
+		Ar << WorldOrigin;
+		bHasWorldOrigin = true;
+	}
+	else
+	{
+		bHasWorldOrigin = false;
+	}
+	if (RepBits & (1 << 7))
+	{
+		Ar << bIsBlockHit;
+	}
+	if (RepBits & (1 << 8))
+	{
+		Ar << bIsCriticalHit;
+	}
+	
+	
+	if (Ar.IsLoading())
+	{
+		AddInstigator(Instigator.Get(), EffectCauser.Get()); // Just to initialize InstigatorAbilitySystemComponent
+	}	
+	
+	bOutSuccess = true;
+	
+	return true;
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AuraAssetManager.cpp
+================================================================================
+
+
+
+
+#include "AuraAssetManager.h"
+#include "AbilitySystemGlobals.h"
+#include "AuraGameplayTags.h"
+
+UAuraAssetManager& UAuraAssetManager::Get()
+{
+	check(GEngine);
+	
+	UAuraAssetManager* AuraAssetManager = Cast<UAuraAssetManager>(GEngine->AssetManager);
+	return *AuraAssetManager;
+}
+
+void UAuraAssetManager::StartInitialLoading()
+{
+	Super::StartInitialLoading();
+	
+	FAuraGameplayTags::InitializeNativeGameplayTags();
+	UAbilitySystemGlobals::Get().InitGlobalData();
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AuraGameplayTags.cpp
+================================================================================
+
+﻿
+
+
+#include "AuraGameplayTags.h"
+#include "GameplayTagsManager.h"
+
+FAuraGameplayTags FAuraGameplayTags::GameplayTags;
+
+void FAuraGameplayTags::InitializeNativeGameplayTags()
+{
+	/*主要属性*/
+	GameplayTags.Attributes_Primary_Strength = UGameplayTagsManager::Get().AddNativeGameplayTag(
+		FName("Attributes.Primary.Strength"),
+		FString(TEXT("增加物理伤害"))
+		);
+	
+	GameplayTags.Attributes_Primary_Intelligence = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Attributes.Primary.Intelligence"),
+	FString(TEXT("增加魔法伤害"))
+	);
+	
+	GameplayTags.Attributes_Primary_Resilience = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Attributes.Primary.Resilience"),
+	FString(TEXT("增加护甲和护甲穿透"))
+	);
+	
+	GameplayTags.Attributes_Primary_Vigor = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Attributes.Primary.Vigor"),
+	FString(TEXT("增加生命值"))
+	);	
+	
+	/*次级属性*/
+	GameplayTags.Attributes_Secondary_Armor = UGameplayTagsManager::Get().AddNativeGameplayTag(
+		FName("Attributes.Secondary.Armor"),
+		FString(TEXT("减少收到的伤害，提升格挡几率"))
+		);
+	
+	GameplayTags.Attributes_Secondary_ArmorPenetration = UGameplayTagsManager::Get().AddNativeGameplayTag(
+		FName("Attributes.Secondary.ArmorPenetration"),
+		FString(TEXT("忽略部分敌人护甲，增加暴击率"))
+		);
+	
+	GameplayTags.Attributes_Secondary_BlockChance = UGameplayTagsManager::Get().AddNativeGameplayTag(
+		FName("Attributes.Secondary.BlockChance"),
+		FString(TEXT("半伤几率"))
+		);
+	
+	GameplayTags.Attributes_Secondary_CriticalHitChance = UGameplayTagsManager::Get().AddNativeGameplayTag(
+		FName("Attributes.Secondary.CriticalHitChance"),
+		FString(TEXT("造成双倍伤害并附加暴击加成的几率"))
+		);
+	
+	GameplayTags.Attributes_Secondary_CriticalHitDamage = UGameplayTagsManager::Get().AddNativeGameplayTag(
+		FName("Attributes.Secondary.CriticalHitDamage"),
+		FString(TEXT("造成暴击时增加的额外伤害"))
+		);
+	
+	GameplayTags.Attributes_Secondary_CriticalHitResistance = UGameplayTagsManager::Get().AddNativeGameplayTag(
+		FName("Attributes.Secondary.CriticalHitResistance"),
+		FString(TEXT("降低敌人攻击时的暴击率"))
+		);
+	
+	GameplayTags.Attributes_Secondary_HealthRegeneration = UGameplayTagsManager::Get().AddNativeGameplayTag(
+		FName("Attributes.Secondary.HealthRegeneration"),
+		FString(TEXT("每秒恢复的生命值"))
+		);
+	
+	GameplayTags.Attributes_Secondary_ManaRegeneration = UGameplayTagsManager::Get().AddNativeGameplayTag(
+		FName("Attributes.Secondary.ManaRegeneration"),
+		FString(TEXT("每秒恢复的法力值"))
+		);
+	
+	GameplayTags.Attributes_Secondary_MaxHealth = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Attributes.Secondary.MaxHealth"),
+	FString(TEXT("可获得的最大生命值"))
+	);
+	
+	GameplayTags.Attributes_Secondary_MaxMana = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Attributes.Secondary.MaxMana"),
+	FString(TEXT("可获得的最大法力值"))
+	);
+	
+	
+	/*输入Tags*/
+	
+	GameplayTags.InputTag_LMB = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("InputTag.LMB"),
+	FString(TEXT("鼠标左键的输入标签"))
+	);
+	
+	GameplayTags.InputTag_RMB = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("InputTag.RMB"),
+	FString(TEXT("鼠标右键的输入标签"))
+	);
+	
+	GameplayTags.InputTag_1 = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("InputTag.1"),
+	FString(TEXT("键盘数字1的输入标签"))
+	);
+	
+	GameplayTags.InputTag_2 = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("InputTag.2"),
+	FString(TEXT("键盘数字2的输入标签"))
+	);
+	
+	GameplayTags.InputTag_3 = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("InputTag.3"),
+	FString(TEXT("键盘数字3的输入标签"))
+	);
+	
+	GameplayTags.InputTag_4 = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("InputTag.4"),
+	FString(TEXT("键盘数字4的输入标签"))
+	);
+	
+	GameplayTags.Damage = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Damage"),
+	FString(TEXT("伤害"))
+	);
+	
+	
+	/*
+	 * 伤害类型
+	 */
+	GameplayTags.Damage_Fire = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Damage.Fire"),
+	FString(TEXT("火焰伤害"))
+	);
+	
+	GameplayTags.Damage_Lightning = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Damage.Lightning"),
+	FString(TEXT("闪电伤害"))
+	);
+	
+	GameplayTags.Damage_Arcane = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Damage.Arcane"),
+	FString(TEXT("魔法伤害"))
+	);
+	
+	GameplayTags.Damage_Physical = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Damage.Physical"),
+	FString(TEXT("物理伤害"))
+	);
+	
+	
+	/*
+	 * 伤害抗性
+	 */
+	
+	GameplayTags.Attributes_Resistance_Arcane = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Attributes.Resistance.Arcane"),
+	FString(TEXT("魔法抗性"))
+	);
+	
+	GameplayTags.Attributes_Resistance_Fire = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Attributes.Resistance.Fire"),
+	FString(TEXT("火焰抗性"))
+	);
+	
+	GameplayTags.Attributes_Resistance_Lightning = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Attributes.Resistance.Lightning"),
+	FString(TEXT("闪电抗性"))
+	);
+	
+	GameplayTags.Attributes_Resistance_Physical = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Attributes.Resistance.Physical"),
+	FString(TEXT("物理抗性"))
+	);
+	
+	/*
+	 * 伤害类型到抗性的映射
+	 */
+	
+	GameplayTags.DamageTypesToResistance.Add(GameplayTags.Damage_Arcane,GameplayTags.Attributes_Resistance_Arcane);
+	GameplayTags.DamageTypesToResistance.Add(GameplayTags.Damage_Lightning,GameplayTags.Attributes_Resistance_Lightning);
+	GameplayTags.DamageTypesToResistance.Add(GameplayTags.Damage_Physical,GameplayTags.Attributes_Resistance_Physical);
+	GameplayTags.DamageTypesToResistance.Add(GameplayTags.Damage_Fire,GameplayTags.Attributes_Resistance_Fire);
+
+	/*
+	 * Effects
+	 */
+	GameplayTags.Effects_HitReact = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Effects.HitReact"),
+	FString(TEXT("受击动画"))
+	);
+	
+	/*
+	 * Abilities
+	 */
+	GameplayTags.Abilities_Attack = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Abilities.Attack"),
+	FString(TEXT("攻击标签"))
+	);
+	
+	/*
+	* 蒙太奇
+	*/
+	GameplayTags.Montage_Attack_Weapon = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.Weapon"),
+	FString(TEXT("武器攻击"))
+	);
+	
+	GameplayTags.Montage_Attack_LeftHand = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.LeftHand"),
+	FString(TEXT("左手攻击"))
+	);
+	
+	GameplayTags.Montage_Attack_RightHand = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.RightHand"),
+	FString(TEXT("右手攻击"))
+	);
+}
+
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\AuraAbilitySystemComponent.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/AuraAbilitySystemComponent.h"
+
+#include "AuraGameplayTags.h"
+#include "AbilitySystem/Abilties/AuraGameplayAbility.h"
+
+void UAuraAbilitySystemComponent::AbilityActorInfoSet()
+{
+	OnGameplayEffectAppliedDelegateToSelf.AddUObject(this,&UAuraAbilitySystemComponent::ClientEffectApplied);
+}
+
+void UAuraAbilitySystemComponent::AddCharacterAbilities(const TArray<TSubclassOf<UGameplayAbility>>& StartupAbilities)
+{
+	for (const TSubclassOf<UGameplayAbility> AbilityClass : StartupAbilities)
+	{
+		FGameplayAbilitySpec AbilitySpec = FGameplayAbilitySpec(AbilityClass,1);
+
+		if (const UAuraGameplayAbility* AuraAbility = Cast<UAuraGameplayAbility>(AbilitySpec.Ability))
+		{
+			AbilitySpec.DynamicAbilityTags.AddTag(AuraAbility->StartupInputTag);
+			GiveAbility(AbilitySpec);
+		}
+		
+		
+		
+		
+		
+	}
+}
+
+void UAuraAbilitySystemComponent::AbilityInputTagHeld(const FGameplayTag& InputTag)
+{
+	if (!InputTag.IsValid()) return;
+	for (FGameplayAbilitySpec& AbilitySpec :GetActivatableAbilities() )
+	{
+		if (AbilitySpec.DynamicAbilityTags.HasTagExact(InputTag))
+		{
+			AbilitySpecInputPressed(AbilitySpec);
+			if (!AbilitySpec.IsActive())
+			{
+				TryActivateAbility(AbilitySpec.Handle);
+			}
+		}	
+	}
+}
+
+void UAuraAbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& InputTag)
+{
+	if (!InputTag.IsValid()) return;
+	for (FGameplayAbilitySpec& AbilitySpec :GetActivatableAbilities() )
+	{
+		if (AbilitySpec.DynamicAbilityTags.HasTagExact(InputTag))
+		{
+			AbilitySpecInputReleased(AbilitySpec);
+			
+		}	
+	}
+}
+
+void UAuraAbilitySystemComponent::ClientEffectApplied_Implementation(UAbilitySystemComponent* AbilitySystemComponent,
+                                                const FGameplayEffectSpec& EffectSpec, FActiveGameplayEffectHandle ActiveEffectHandle)
+{
+	FGameplayTagContainer TagContainer;
+	EffectSpec.GetAllAssetTags(TagContainer);
+	
+		EffectAssetTags.Broadcast(TagContainer);
+	
+	
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\AuraAbilitySystemGlobals.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/AuraAbilitySystemGlobals.h"
+
+#include "AuraAbilityTypes.h"
+
+FGameplayEffectContext* UAuraAbilitySystemGlobals::AllocGameplayEffectContext() const
+{
+	return new FAuraGameplayEffectContext();
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\AuraAbilitySystemLibrary.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/AuraAbilitySystemLibrary.h"
+
+#include "AbilitySystemComponent.h"
+#include "AuraAbilityTypes.h"
+#include "Game/AuraGameModeBase.h"
+#include "Interaction/CombatInterface.h"
+#include "Kismet/GameplayStatics.h"
+#include "Player/AuraPlayerState.h"
+#include "UI/HUD/AuraHUD.h"
+#include "UI/WidgetController/AuraWidgetController.h"
+
+UOverlayWidgetController* UAuraAbilitySystemLibrary::GetOverlayWidgetController(const UObject* WorldContextObject)
+{
+	if (APlayerController* PC = UGameplayStatics::GetPlayerController(WorldContextObject, 0))
+	{
+		if (AAuraHUD* AuraHUD = Cast<AAuraHUD>(PC->GetHUD()))
+		{
+			AAuraPlayerState* PS = PC->GetPlayerState<AAuraPlayerState>();
+			UAbilitySystemComponent* ASC = PS->GetAbilitySystemComponent();
+			UAttributeSet* AS = PS->GetAttributeSet();
+			const FWidgetControllerParams WidgetControllerParams(PC,PS,ASC,AS);
+			return AuraHUD->GetOverlayWidgetController(WidgetControllerParams);
+		}
+	}
+	return nullptr;
+}
+
+UAttributeMenuWidgetController* UAuraAbilitySystemLibrary::GetAttributeMenuWidgetController(
+	const UObject* WorldContextObject)
+{
+	if (APlayerController* PC = UGameplayStatics::GetPlayerController(WorldContextObject, 0))
+	{
+		if (AAuraHUD* AuraHUD = Cast<AAuraHUD>(PC->GetHUD()))
+		{
+			AAuraPlayerState* PS = PC->GetPlayerState<AAuraPlayerState>();
+			UAbilitySystemComponent* ASC = PS->GetAbilitySystemComponent();
+			UAttributeSet* AS = PS->GetAttributeSet();
+			const FWidgetControllerParams WidgetControllerParams(PC,PS,ASC,AS);
+			return AuraHUD->GetAttributeMenuWidgetController(WidgetControllerParams);
+		}
+	}
+	return nullptr;
+}
+
+void UAuraAbilitySystemLibrary::InitializeDefaultAttributes(const UObject* WorldContextObject,ECharacterClass CharacterClass, float Level,UAbilitySystemComponent* ASC)
+{
+	AActor* AvatarActor = ASC->GetAvatarActor();
+	
+	UCharacterClassInfo* CharacterClassInfo = GetCharacterClassInfo(WorldContextObject);
+	FCharacterClassDefaultInfo ClassDefaultInfo =CharacterClassInfo->GetClassDefaultInfo(CharacterClass);
+	
+	FGameplayEffectContextHandle PrimaryAttributesContextHandle = ASC->MakeEffectContext();
+	PrimaryAttributesContextHandle.AddSourceObject(AvatarActor);
+	const FGameplayEffectSpecHandle PrimaryAttributesSpecHandle = ASC->MakeOutgoingSpec(ClassDefaultInfo.PrimaryAttributes,Level,PrimaryAttributesContextHandle);
+	ASC->ApplyGameplayEffectSpecToSelf(*PrimaryAttributesSpecHandle.Data.Get());
+	
+	FGameplayEffectContextHandle SecondaryAttributesContextHandle = ASC->MakeEffectContext();
+	SecondaryAttributesContextHandle.AddSourceObject(AvatarActor);
+	const FGameplayEffectSpecHandle SecondaryAttributesSpecHandle = ASC->MakeOutgoingSpec(CharacterClassInfo->SecondaryAttributes,Level,SecondaryAttributesContextHandle);
+	ASC->ApplyGameplayEffectSpecToSelf(*SecondaryAttributesSpecHandle.Data.Get());
+	
+	FGameplayEffectContextHandle VitalAttributesContextHandle = ASC->MakeEffectContext();
+	VitalAttributesContextHandle.AddSourceObject(AvatarActor);
+	const FGameplayEffectSpecHandle VitalAttributesSpecHandle = ASC->MakeOutgoingSpec(CharacterClassInfo->VitalAttributes,Level,VitalAttributesContextHandle);
+	ASC->ApplyGameplayEffectSpecToSelf(*VitalAttributesSpecHandle.Data.Get());
+	
+	
+}
+
+void UAuraAbilitySystemLibrary::GiveStartupAbilities(const UObject* WorldContextObject, UAbilitySystemComponent* ASC,ECharacterClass CharacterClass)
+{
+	UCharacterClassInfo* CharacterClassInfo = GetCharacterClassInfo(WorldContextObject);
+	if (CharacterClassInfo == nullptr) return;
+	for (TSubclassOf<UGameplayAbility> AbilityClass:CharacterClassInfo->CommonAbilities)
+	{
+		FGameplayAbilitySpec AbilitySpec =FGameplayAbilitySpec(AbilityClass,1); 
+		ASC->GiveAbility(AbilitySpec);
+	}
+	const FCharacterClassDefaultInfo DefaultInfo = CharacterClassInfo->GetClassDefaultInfo(CharacterClass);
+	for (TSubclassOf<UGameplayAbility> AbilityClass : DefaultInfo.StartupAbilities)
+	{
+		ICombatInterface* CombatInterface = Cast<ICombatInterface>(ASC->GetAvatarActor());
+		if (CombatInterface)
+		{
+			FGameplayAbilitySpec AbilitySpec =FGameplayAbilitySpec(AbilityClass,CombatInterface->GetPlayerLevel());
+			ASC->GiveAbility(AbilitySpec);
+		}
+	}
+}
+
+UCharacterClassInfo* UAuraAbilitySystemLibrary::GetCharacterClassInfo(const UObject* WorldContextObject)
+{
+	AAuraGameModeBase* AuraGameMode = Cast<AAuraGameModeBase>(UGameplayStatics::GetGameMode(WorldContextObject));
+	if (AuraGameMode == nullptr) return nullptr;
+	return  AuraGameMode->CharacterClassInfo;
+}
+
+bool UAuraAbilitySystemLibrary::IsBlockedHit(const FGameplayEffectContextHandle& EffectContextHandle)
+{
+	if (const FAuraGameplayEffectContext* AuraEffectContext = static_cast<const FAuraGameplayEffectContext*>(EffectContextHandle.Get()))
+	{
+		return AuraEffectContext->IsBlockedHit(); 	
+	}
+	return false;
+	
+}
+
+bool UAuraAbilitySystemLibrary::IsCriticalHit(const FGameplayEffectContextHandle& EffectContextHandle)
+{
+	if (const FAuraGameplayEffectContext* AuraEffectContext = static_cast<const FAuraGameplayEffectContext*>(EffectContextHandle.Get()))
+	{
+		return AuraEffectContext->IsCriticalHit(); 	
+	}
+	return false;
+}
+
+void UAuraAbilitySystemLibrary::SetIsBlockedHit(FGameplayEffectContextHandle& EffectContextHandle, bool bInIsBlockedHit)
+{
+	if(FAuraGameplayEffectContext* AuraEffectContext = static_cast<FAuraGameplayEffectContext*>(EffectContextHandle.Get()))
+	{
+		AuraEffectContext->SetIsBlockHit(bInIsBlockedHit);
+	}
+}
+
+void UAuraAbilitySystemLibrary::SetIsCriticalHit(FGameplayEffectContextHandle& EffectContextHandle,
+	bool bInIsCriticalHit)
+{
+	if(FAuraGameplayEffectContext* AuraEffectContext = static_cast<FAuraGameplayEffectContext*>(EffectContextHandle.Get()))
+	{
+		AuraEffectContext->SetIsCriticalHit(bInIsCriticalHit);
+	}
+}
+
+void UAuraAbilitySystemLibrary::GetLivePlayersWithRadius(const UObject* WorldContextObject,
+	TArray<AActor*>& OutOverlappingActors, const TArray<AActor*>& ActorsToIgnore, float Radius,
+	const FVector& SphereOrigin)
+{
+	FCollisionQueryParams SphereParams;
+	SphereParams.AddIgnoredActors(ActorsToIgnore);
+	TArray<FOverlapResult> Overlaps;
+	if (const UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject,EGetWorldErrorMode::LogAndReturnNull))
+	{
+		World->OverlapMultiByObjectType(Overlaps, SphereOrigin, FQuat::Identity, FCollisionObjectQueryParams(FCollisionObjectQueryParams::InitType::AllDynamicObjects), FCollisionShape::MakeSphere(Radius), SphereParams);
+		for (FOverlapResult& Overlap : Overlaps)
+		{
+			if (Overlap.GetActor()->Implements<UCombatInterface>() && !ICombatInterface::Execute_IsDead(Overlap.GetActor()))
+			{
+				OutOverlappingActors.AddUnique(Overlap.GetActor());
+			}
+		}
+	}
+	
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\AuraAttributeSet.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/AuraAttributeSet.h"
+
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
+#include "AuraGameplayTags.h"
+#include "GameplayEffectExtension.h"
+#include "AbilitySystem/AuraAbilitySystemLibrary.h"
+#include "GameFramework/Character.h"
+#include "Interaction/CombatInterface.h"
+#include "Kismet/GameplayStatics.h"
+#include "Net/UnrealNetwork.h"
+#include "Player/AuraPlayerController.h"
+
+UAuraAttributeSet::UAuraAttributeSet()
+{
+	
+	const FAuraGameplayTags& GameplayTags = FAuraGameplayTags::Get();
+	
+	/*主要属性*/
+	TagsToAttributes.Add(GameplayTags.Attributes_Primary_Strength,GetStrengthAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Primary_Intelligence,GetIntelligenceAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Primary_Resilience,GetResilienceAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Primary_Vigor,GetVigorAttribute);
+	
+	/*次级属性*/
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_Armor,GetArmorAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_ArmorPenetration,GetArmorPenetrationAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_BlockChance,GetBlockChanceAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_CriticalHitChance,GetCriticalHitChanceAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_CriticalHitDamage,GetCriticalHitDamageAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_CriticalHitResistance,GetCriticalHitResistanceAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_HealthRegeneration,GetHealthRegenerationAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_ManaRegeneration,GetManaRegenerationAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_MaxHealth,GetMaxHealthAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Secondary_MaxMana,GetMaxManaAttribute);
+
+	/*抗性属性*/
+	TagsToAttributes.Add(GameplayTags.Attributes_Resistance_Arcane,GetArcaneResistanceAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Resistance_Fire,GetArcaneResistanceAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Resistance_Physical,GetPhysicalResistanceAttribute);
+	TagsToAttributes.Add(GameplayTags.Attributes_Resistance_Lightning,GetLightningResistanceAttribute);
+	
+	
+}
+
+void UAuraAttributeSet::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	
+	//主要属性
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, Strength, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, Intelligence, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, Resilience, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, Vigor, COND_None, REPNOTIFY_Always);
+	
+	//次级属性
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, Armor, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, ArmorPenetration, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, BlockChance, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, CriticalHitDamage, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, CriticalHitResistance, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, CriticalHitChance, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, HealthRegeneration, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, ManaRegeneration, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, MaxHealth, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, MaxMana, COND_None, REPNOTIFY_Always);
+
+	//抗性属性
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, FireResistance, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, LightningResistance, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, ArcaneResistance, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, PhysicalResistance, COND_None, REPNOTIFY_Always);
+
+	
+	//重要属性
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, Health, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, Mana, COND_None, REPNOTIFY_Always);
+	
+	
+}
+
+void UAuraAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
+{
+	Super::PreAttributeChange(Attribute, NewValue);
+	
+	if (Attribute == GetHealthAttribute())
+	{	
+		NewValue = FMath::Clamp(NewValue, 0.f, GetMaxHealth());
+	}
+	if (Attribute == GetManaAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.f, GetMaxMana());
+	}
+}
+
+void UAuraAttributeSet::SetEffectProperties(const FGameplayEffectModCallbackData& Data, FEffectProperties& Props) const
+{
+	Props.EffectContextHandle = Data.EffectSpec.GetContext();
+	Props.SourceASC =  Props.EffectContextHandle.GetOriginalInstigatorAbilitySystemComponent();
+	
+	
+	if (IsValid(Props.SourceASC) && Props.SourceASC->AbilityActorInfo.IsValid() && Props.SourceASC->AbilityActorInfo->AvatarActor.IsValid())
+	{
+		// 1. 拿 Avatar (表现Actor)
+		Props.SourceAvatarActor = Props.SourceASC->AbilityActorInfo->AvatarActor.Get();
+		// 2. 尝试从 AbilityActorInfo 拿 Controller
+		Props.SourceController = Props.SourceASC->AbilityActorInfo->PlayerController.Get();
+		// 3. 【关键补救逻辑】如果上面没拿到 Controller，但有 Avatar
+		if (Props.SourceController == nullptr && Props.SourceAvatarActor != nullptr)
+		{
+			// 尝试把 Avatar 转成 Pawn，然后通过 Pawn 拿 Controller
+			if (const APawn* Pawn = Cast<APawn>(Props.SourceAvatarActor))
+			{
+				Props.SourceController = Pawn->GetController();
+			}
+		}
+		// 4. 如果拿到了 Controller，就能拿到 Character
+		if (Props.SourceController)
+		{
+			Props.SourceCharacter = Cast<ACharacter>(Props.SourceController->GetPawn());
+		}
+	}
+	
+	if (Data.Target.AbilityActorInfo.IsValid() && Data.Target.AbilityActorInfo->AvatarActor.IsValid())
+	{
+		// 直接从 Data.Target 里拿 Avatar, Controller, Character和ASC
+		Props.TargetAvatarActor = Data.Target.AbilityActorInfo->AvatarActor.Get();
+		Props.TargetController = Data.Target.AbilityActorInfo->PlayerController.Get();
+		Props.TargetCharacter = Cast<ACharacter>(Props.TargetAvatarActor);
+		Props.TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Props.TargetAvatarActor);
+	}
+}
+
+
+
+void UAuraAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
+{
+	Super::PostGameplayEffectExecute(Data);
+	
+	FEffectProperties Props;
+	SetEffectProperties(Data,Props);
+	if (Data.EvaluatedData.Attribute == GetHealthAttribute())
+	{
+		SetHealth(FMath::Clamp(GetHealth(), 0.f, GetMaxHealth()));
+		UE_LOG(LogTemp, Warning, TEXT("Change Health on: %s,Health : %f"),*Props.TargetAvatarActor->GetName(),GetHealth() );
+	}
+	if (Data.EvaluatedData.Attribute == GetManaAttribute())
+	{
+		SetMana(FMath::Clamp(GetMana(), 0.f, GetMaxMana()));
+	}
+	if (Data.EvaluatedData.Attribute == GetIncomingDamageAttribute())
+	{
+		const float LocalIncomingDamage = GetIncomingDamage();
+		SetIncomingDamage(0.f);
+		if (LocalIncomingDamage > 0.f)
+		{
+			const float NewHealth = GetHealth() - LocalIncomingDamage;
+			SetHealth(FMath::Clamp(NewHealth, 0.f, GetMaxHealth()));
+			
+			const bool bFatal = NewHealth <= 0.f;
+			if (bFatal)
+			{
+				ICombatInterface* CombatInterface = Cast<ICombatInterface>(Props.TargetAvatarActor);
+				if (CombatInterface)
+				{
+					CombatInterface->Die();
+				}
+			}
+			else
+			{
+				FGameplayTagContainer TagContainer;
+				TagContainer.AddTag(FAuraGameplayTags::Get().Effects_HitReact);
+				Props.TargetASC->TryActivateAbilitiesByTag(TagContainer);
+			}
+			
+			
+			const bool bBlocked = UAuraAbilitySystemLibrary::IsBlockedHit(Props.EffectContextHandle);
+			const bool bCriticalHit = UAuraAbilitySystemLibrary::IsCriticalHit(Props.EffectContextHandle);
+
+			ShowFloatingText(Props,LocalIncomingDamage,bBlocked,bCriticalHit);
+						
+		}
+	}
+}
+
+void UAuraAttributeSet::ShowFloatingText(const FEffectProperties& Props, float Damage,bool bBlockedHit,bool bCriticalHit) const
+{
+	if (Props.SourceCharacter != Props.TargetCharacter)
+	{
+		if (AAuraPlayerController* PC = Cast<AAuraPlayerController>(Props.SourceCharacter->Controller))
+		{
+			PC->ShowDamageNumber(Damage,Props.TargetCharacter,bBlockedHit,bCriticalHit);
+			return;
+		}
+		if (AAuraPlayerController* PC = Cast<AAuraPlayerController>(Props.TargetCharacter->Controller))
+		{
+			PC->ShowDamageNumber(Damage,Props.TargetCharacter,bBlockedHit,bCriticalHit);
+		}
+	}
+}
+
+void UAuraAttributeSet::OnRep_Health(const FGameplayAttributeData& OldHealth) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, Health, OldHealth);
+}
+
+
+
+void UAuraAttributeSet::OnRep_Mana(const FGameplayAttributeData& OldMana) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, Mana, OldMana);
+}
+
+
+
+void UAuraAttributeSet::OnRep_Strength(const FGameplayAttributeData& OldStrength) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, Strength, OldStrength);
+}
+
+void UAuraAttributeSet::OnRep_Intelligence(const FGameplayAttributeData& OldIntelligence) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, Intelligence, OldIntelligence);
+}
+
+void UAuraAttributeSet::OnRep_Resilience(const FGameplayAttributeData& OldResilience) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, Resilience, OldResilience);
+}
+
+void UAuraAttributeSet::OnRep_Vigor(const FGameplayAttributeData& OldVigor) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, Vigor, OldVigor);
+}
+
+void UAuraAttributeSet::OnRep_Armor(const FGameplayAttributeData& OldArmor) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, Armor, OldArmor);
+}
+
+void UAuraAttributeSet::OnRep_ArmorPenetration(const FGameplayAttributeData& OldArmorPenetration) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet,ArmorPenetration,OldArmorPenetration);
+}
+
+void UAuraAttributeSet::OnRep_BlockChance(const FGameplayAttributeData& OldBlockChance) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet,BlockChance,OldBlockChance);
+}
+
+void UAuraAttributeSet::OnRep_CriticalHitChance(const FGameplayAttributeData& OldCriticalHitChance) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet,CriticalHitChance,OldCriticalHitChance);
+}
+
+void UAuraAttributeSet::OnRep_CriticalHitDamage(const FGameplayAttributeData& OldCriticalHitDamage) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet,CriticalHitDamage,OldCriticalHitDamage);
+
+}
+
+void UAuraAttributeSet::OnRep_CriticalHitResistance(const FGameplayAttributeData& OldCriticalHitResistance) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet,CriticalHitResistance,OldCriticalHitResistance);
+}
+
+void UAuraAttributeSet::OnRep_HealthRegeneration(const FGameplayAttributeData& OldHealthRegeneration) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet,HealthRegeneration,OldHealthRegeneration);
+}
+
+void UAuraAttributeSet::OnRep_ManaRegeneration(const FGameplayAttributeData& OldManaRegeneration) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet,ManaRegeneration,OldManaRegeneration);
+}
+
+void UAuraAttributeSet::OnRep_MaxHealth(const FGameplayAttributeData& OldMaxHealth) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, MaxHealth, OldMaxHealth);
+}
+
+void UAuraAttributeSet::OnRep_MaxMana(const FGameplayAttributeData& OldMaxMana) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, MaxMana, OldMaxMana);
+}
+
+void UAuraAttributeSet::OnRep_FireResistance(const FGameplayAttributeData& OldFireResistance) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, FireResistance, OldFireResistance);
+
+}
+
+void UAuraAttributeSet::OnRep_LightningResistance(const FGameplayAttributeData& OldLightningResistance) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, LightningResistance, OldLightningResistance);
+
+}
+
+void UAuraAttributeSet::OnRep_ArcaneResistance(const FGameplayAttributeData& OldArcaneResistance) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, ArcaneResistance, OldArcaneResistance);
+
+}
+
+void UAuraAttributeSet::OnRep_PhysicalResistance(const FGameplayAttributeData& OldPhysicalResistance) const
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, PhysicalResistance, OldPhysicalResistance);
+
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\AbilityTasks\TargetDataUnderMouse.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/AbilityTasks/TargetDataUnderMouse.h"
+
+#include "AbilitySystemComponent.h"
+
+UTargetDataUnderMouse* UTargetDataUnderMouse::CreateTargetDataUnderMouse(UGameplayAbility* OwningAbility)
+{
+	UTargetDataUnderMouse* MyObj = NewAbilityTask<UTargetDataUnderMouse>(OwningAbility);
+	return MyObj;
+}
+
+void UTargetDataUnderMouse::Activate()
+{
+	
+	const bool bIsLocallyControlled = Ability->GetCurrentActorInfo()->IsLocallyControlled();
+	if (bIsLocallyControlled)
+	{
+		SendMouseCursorData();
+	}
+	else
+	{
+		const FGameplayAbilitySpecHandle SpecHandle = GetAbilitySpecHandle();
+		const FPredictionKey ActivationPredictionKey = GetActivationPredictionKey();
+		AbilitySystemComponent.Get()->AbilityTargetDataSetDelegate(SpecHandle,ActivationPredictionKey).AddUObject(this,&UTargetDataUnderMouse::OnTargetDataReplicatedCallback);
+		const bool bCalledDelegate = AbilitySystemComponent.Get()->CallReplicatedTargetDataDelegatesIfSet(SpecHandle,ActivationPredictionKey);
+		if (!bCalledDelegate)
+		{
+			SetWaitingOnRemotePlayerData();
+		}
+	}
+	
+	
+}
+
+void UTargetDataUnderMouse::SendMouseCursorData()
+{
+	FScopedPredictionWindow ScopedPrediction(AbilitySystemComponent.Get());
+	
+	APlayerController* PC = Ability->GetCurrentActorInfo()->PlayerController.Get();
+	FHitResult CursorHit;
+	PC->GetHitResultUnderCursor(ECC_Visibility,false,CursorHit);
+	
+	FGameplayAbilityTargetDataHandle DataHandle;
+	FGameplayAbilityTargetData_SingleTargetHit* Data = new FGameplayAbilityTargetData_SingleTargetHit();
+	Data->HitResult = CursorHit;
+	DataHandle.Add(Data);
+	
+	AbilitySystemComponent->ServerSetReplicatedTargetData(
+		GetAbilitySpecHandle(),
+		GetActivationPredictionKey(),
+		DataHandle,
+		FGameplayTag(),
+		AbilitySystemComponent->ScopedPredictionKey);
+
+	if(ShouldBroadcastAbilityTaskDelegates())
+	{
+		ValidData.Broadcast(DataHandle);
+	}
+
+}
+
+void UTargetDataUnderMouse::OnTargetDataReplicatedCallback(const FGameplayAbilityTargetDataHandle& DataHandle,
+	FGameplayTag ActivationTag)
+{
+	AbilitySystemComponent->ConsumeClientReplicatedTargetData(GetAbilitySpecHandle(),GetActivationPredictionKey());
+	if(ShouldBroadcastAbilityTaskDelegates())
+	{
+		ValidData.Broadcast(DataHandle);
+	}
+
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\Abilties\AuraDamageGameplayAbility.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/Abilties/AuraDamageGameplayAbility.h"
+
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
+
+void UAuraDamageGameplayAbility::CauseDamage(AActor* TargetActor)
+{
+	FGameplayEffectSpecHandle DamageSpecHandle = MakeOutgoingGameplayEffectSpec(DamageEffectClass,1.F);
+	for (TTuple<FGameplayTag,FScalableFloat> Pair : DamageTypes)
+	{
+		const float ScaledDamage = Pair.Value.GetValueAtLevel(GetAbilityLevel());
+		UAbilitySystemBlueprintLibrary::AssignTagSetByCallerMagnitude(DamageSpecHandle,Pair.Key,ScaledDamage);
+	}
+	GetAbilitySystemComponentFromActorInfo()->ApplyGameplayEffectSpecToTarget(*DamageSpecHandle.Data.Get(),UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor));
+	UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor);
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\Abilties\AuraGameplayAbility.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/Abilties/AuraGameplayAbility.h"
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\Abilties\AuraMeleeAttack.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/Abilties/AuraMeleeAttack.h"
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\Abilties\AuraProjectileSpell.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/Abilties/AuraProjectileSpell.h"
+
+#include <AbilitySystemBlueprintLibrary.h>
+
+#include "AbilitySystemComponent.h"
+#include "Actor/AuraProjectile.h"
+#include "Interaction/CombatInterface.h"
+#include "Aura/Public/AuraGameplayTags.h"
+
+
+void UAuraProjectileSpell::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
+                                           const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
+                                           const FGameplayEventData* TriggerEventData)
+{
+	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+
+}
+
+void UAuraProjectileSpell::SpawnProjectile(const FVector& ProjectileTargetLocation)
+{
+	const bool bIsServer = GetAvatarActorFromActorInfo()->HasAuthority();
+	if (!bIsServer) return;
+	
+	const FVector SocketLocation = ICombatInterface::Execute_GetCombatSocketLocation(
+		GetAvatarActorFromActorInfo(),
+		FAuraGameplayTags::Get().Montage_Attack_Weapon);
+	FRotator Rotation = (ProjectileTargetLocation - SocketLocation).Rotation();
+	//Rotation.Pitch = 0.0f;
+		
+	FTransform SpawnTransform;
+	SpawnTransform.SetLocation(SocketLocation);
+	SpawnTransform.SetRotation(Rotation.Quaternion());
+		
+	AAuraProjectile* Projectile = GetWorld()->SpawnActorDeferred<AAuraProjectile>(
+		ProjectileClass,
+		SpawnTransform,
+		GetOwningActorFromActorInfo(),
+		Cast<APawn>(GetOwningActorFromActorInfo()),
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn
+		);
+		
+	const UAbilitySystemComponent* SourceASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(GetAvatarActorFromActorInfo());
+		
+	FGameplayEffectContextHandle EffectContextHandle = SourceASC->MakeEffectContext();
+	EffectContextHandle.SetAbility(this);
+	EffectContextHandle.AddSourceObject(Projectile);
+	TArray<TWeakObjectPtr<AActor>> Actors;
+	Actors.Add(Projectile);
+	EffectContextHandle.AddActors(Actors);
+	FHitResult HitResult;
+	HitResult.Location = ProjectileTargetLocation;
+	EffectContextHandle.AddHitResult(HitResult);
+		
+	const FGameplayEffectSpecHandle SpecHandle = SourceASC->MakeOutgoingSpec(DamageEffectClass,GetAbilityLevel(),EffectContextHandle);
+		
+	const FAuraGameplayTags GameplayTags = FAuraGameplayTags::Get();
+	for (auto& Pair : DamageTypes)
+	{
+		const float ScaledDamage = Pair.Value.GetValueAtLevel(GetAbilityLevel());
+		UAbilitySystemBlueprintLibrary::AssignTagSetByCallerMagnitude(SpecHandle,Pair.Key,ScaledDamage);
+	}
+		
+	Projectile->DamageEffectSpecHandle = SpecHandle;
+		
+	Projectile->FinishSpawning(SpawnTransform);
+	
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\Data\AttributeInfo.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/Data/AttributeInfo.h"
+
+FAuraAttributeInfo UAttributeInfo::FindAttributeInfoForTag(const FGameplayTag AttributeTag, bool bLogNotFound) const
+{
+	for (const FAuraAttributeInfo& Info : AttributeInformation)
+	{
+		if (Info.AttributeTag == AttributeTag)
+		{
+			return Info;
+		}
+	}
+	if (bLogNotFound)
+	{
+		UE_LOG(LogTemp,Error,TEXT("Can't find Info for AttributeTag [%s] on AttributeInfo [%s]"),*AttributeTag.ToString(),*GetNameSafe(this));
+	}
+	return FAuraAttributeInfo();
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\Data\CharacterClassInfo.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/Data/CharacterClassInfo.h"
+
+FCharacterClassDefaultInfo UCharacterClassInfo::GetClassDefaultInfo(const ECharacterClass& CharacterClass)
+{
+	return CharacterClassInformation.FindChecked(CharacterClass);
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\ExecCalc\ExecCalc_Damage.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/ExecCalc/ExecCalc_Damage.h"
+#include "AbilitySystemComponent.h"
+#include "AuraAbilityTypes.h"
+#include "AuraGameplayTags.h"
+#include "AbilitySystem/AuraAbilitySystemLibrary.h"
+#include "AbilitySystem/AuraAttributeSet.h"
+#include "AbilitySystem/Data/CharacterClassInfo.h"
+#include "Interaction/CombatInterface.h"
+
+struct AuraDamageStatics
+{
+	DECLARE_ATTRIBUTE_CAPTUREDEF(Armor);
+	DECLARE_ATTRIBUTE_CAPTUREDEF(ArmorPenetration);
+	DECLARE_ATTRIBUTE_CAPTUREDEF(BlockChance);
+	DECLARE_ATTRIBUTE_CAPTUREDEF(CriticalHitResistance);
+	DECLARE_ATTRIBUTE_CAPTUREDEF(CriticalHitChance);
+	DECLARE_ATTRIBUTE_CAPTUREDEF(CriticalHitDamage);
+	DECLARE_ATTRIBUTE_CAPTUREDEF(FireResistance);
+	DECLARE_ATTRIBUTE_CAPTUREDEF(LightningResistance);
+	DECLARE_ATTRIBUTE_CAPTUREDEF(ArcaneResistance);
+	DECLARE_ATTRIBUTE_CAPTUREDEF(PhysicalResistance);
+	
+	TMap<FGameplayTag,FGameplayEffectAttributeCaptureDefinition> TagsToCaptureDefs;
+
+	AuraDamageStatics()
+	{
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,Armor,Target,false);
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,BlockChance,Target,false);
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,ArmorPenetration,Source,false);
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,CriticalHitResistance,Target,false);
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,CriticalHitChance,Source,false);
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,CriticalHitDamage,Source,false);
+		
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,FireResistance,Target,false);
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,LightningResistance,Target,false);
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,ArcaneResistance,Target,false);
+		DEFINE_ATTRIBUTE_CAPTUREDEF(UAuraAttributeSet,PhysicalResistance,Target,false);
+
+		const FAuraGameplayTags& Tags = FAuraGameplayTags::Get();
+		
+		TagsToCaptureDefs.Add(Tags.Attributes_Secondary_Armor,ArmorDef);
+		TagsToCaptureDefs.Add(Tags.Attributes_Secondary_ArmorPenetration,ArmorPenetrationDef);
+		TagsToCaptureDefs.Add(Tags.Attributes_Secondary_BlockChance,BlockChanceDef);
+		TagsToCaptureDefs.Add(Tags.Attributes_Secondary_CriticalHitChance,CriticalHitChanceDef);
+		TagsToCaptureDefs.Add(Tags.Attributes_Secondary_CriticalHitDamage,CriticalHitDamageDef);
+		TagsToCaptureDefs.Add(Tags.Attributes_Secondary_CriticalHitResistance,CriticalHitResistanceDef);
+		
+		TagsToCaptureDefs.Add(Tags.Attributes_Resistance_Arcane,ArcaneResistanceDef);
+		TagsToCaptureDefs.Add(Tags.Attributes_Resistance_Fire,FireResistanceDef);
+		TagsToCaptureDefs.Add(Tags.Attributes_Resistance_Lightning,LightningResistanceDef);
+		TagsToCaptureDefs.Add(Tags.Attributes_Resistance_Physical,PhysicalResistanceDef);
+
+
+
+
+
+
+
+	}
+};
+
+static const AuraDamageStatics& DamageStatics()
+{
+	static AuraDamageStatics DStatics;
+	return DStatics;
+}
+
+
+UExecCalc_Damage::UExecCalc_Damage()
+{
+	RelevantAttributesToCapture.Add(DamageStatics().ArmorDef);
+	RelevantAttributesToCapture.Add(DamageStatics().BlockChanceDef);
+	RelevantAttributesToCapture.Add(DamageStatics().ArmorPenetrationDef);
+	RelevantAttributesToCapture.Add(DamageStatics().CriticalHitChanceDef);
+	RelevantAttributesToCapture.Add(DamageStatics().CriticalHitDamageDef);
+	RelevantAttributesToCapture.Add(DamageStatics().CriticalHitResistanceDef);
+	
+	RelevantAttributesToCapture.Add(DamageStatics().FireResistanceDef);
+	RelevantAttributesToCapture.Add(DamageStatics().ArcaneResistanceDef);
+	RelevantAttributesToCapture.Add(DamageStatics().LightningResistanceDef);
+	RelevantAttributesToCapture.Add(DamageStatics().PhysicalResistanceDef);
+	
+	
+
+}
+
+void UExecCalc_Damage::Execute_Implementation(const FGameplayEffectCustomExecutionParameters& ExecutionParams,
+	FGameplayEffectCustomExecutionOutput& OutExecutionOutput) const
+{
+	const UAbilitySystemComponent* SourceASC = ExecutionParams.GetSourceAbilitySystemComponent();
+	const UAbilitySystemComponent* TargetASC = ExecutionParams.GetTargetAbilitySystemComponent();
+	
+	AActor* SourceAvatar = SourceASC ? SourceASC->GetAvatarActor() : nullptr;
+	AActor* TargetAvatar = TargetASC ? TargetASC->GetAvatarActor() : nullptr;
+	ICombatInterface* SourceCombatInterface = Cast<ICombatInterface>(SourceAvatar);
+	ICombatInterface* TargetCombatInterface = Cast<ICombatInterface>(TargetAvatar);
+
+	
+	const FGameplayEffectSpec& Spec = ExecutionParams.GetOwningSpec();
+	
+	const FGameplayTagContainer* SourceTags = Spec.CapturedSourceTags.GetAggregatedTags();
+	const FGameplayTagContainer* TargetTags = Spec.CapturedTargetTags.GetAggregatedTags();
+
+	FAggregatorEvaluateParameters EvaluateParameters;
+	EvaluateParameters.SourceTags = SourceTags;
+	EvaluateParameters.TargetTags = TargetTags;
+	
+	/*伤害由调用者的幅度决定*/
+	float Damage = 0.f;
+	for (const TPair<FGameplayTag, FGameplayTag>& Pair : FAuraGameplayTags::Get().DamageTypesToResistance)
+	{
+		const FGameplayTag DamageTag = Pair.Key;
+		const FGameplayTag ResistanceTag = Pair.Value;
+		
+		checkf(AuraDamageStatics().TagsToCaptureDefs.Contains(ResistanceTag),TEXT("在ExeCalc_Damage中：TagsToCaptureDefs中不包含[%s]"),*ResistanceTag.ToString());
+		const FGameplayEffectAttributeCaptureDefinition CaptureDef = AuraDamageStatics().TagsToCaptureDefs[ResistanceTag];
+		
+		float DamageTypeValue = Spec.GetSetByCallerMagnitude(Pair.Key);
+		
+		
+		float Resistance = 0.f;
+		ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(CaptureDef,EvaluateParameters,Resistance);
+		Resistance = FMath::Clamp(Resistance, 0.f,100.f);
+		
+		DamageTypeValue *= (100.f - Resistance)/ 100.f ;
+		
+		Damage += DamageTypeValue;
+	}
+	/*捕捉目标的格挡几率，判断是否成功格挡*/
+	float TargetBlockChance = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(DamageStatics().BlockChanceDef,EvaluateParameters,TargetBlockChance);
+	TargetBlockChance = FMath::Max(TargetBlockChance, 0.f);
+	
+	/*如果成功格挡，减半伤害*/
+	const bool bBlocked = FMath::RandRange(1,100) < TargetBlockChance;
+	if (bBlocked)
+	{
+		Damage = Damage / 2.f;
+	}
+	
+	FGameplayEffectContextHandle EffectContextHandle = Spec.GetContext();
+	UAuraAbilitySystemLibrary::SetIsBlockedHit(EffectContextHandle,bBlocked);
+	
+	
+	/*获得目标护甲属性值*/
+	float TargetArmor = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(DamageStatics().ArmorDef,EvaluateParameters,TargetArmor);
+	TargetArmor = FMath::Max(TargetArmor, 0.f);
+	
+	/*获得护甲穿透属性值*/
+	float SourceArmorPenetration = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(DamageStatics().ArmorPenetrationDef,EvaluateParameters,SourceArmorPenetration);
+	SourceArmorPenetration = FMath::Max(SourceArmorPenetration, 0.f);
+	
+	
+	const UCharacterClassInfo* CharacterClassInfo = UAuraAbilitySystemLibrary::GetCharacterClassInfo(SourceAvatar);
+	const FRealCurve* ArmorPenetrationCurve = CharacterClassInfo->DamageCalculationCoefficients->FindCurve(FName("ArmorPenetration"),FString());
+	const float ArmorPenetrationCoefficient = ArmorPenetrationCurve->Eval(SourceCombatInterface->GetPlayerLevel());
+	
+	
+	/* 护甲穿透忽略目标护甲的百分比*/
+	const float EffectiveArmor = TargetArmor * ( 100 - SourceArmorPenetration * ArmorPenetrationCoefficient ) / 100.f;
+	
+	const FRealCurve* EffectiveArmorCurve = CharacterClassInfo->DamageCalculationCoefficients->FindCurve(FName("EffectiveArmor"),FString());
+	const float EffectiveArmorCoefficient = EffectiveArmorCurve->Eval(TargetCombatInterface->GetPlayerLevel());
+	Damage *= ( 100 - EffectiveArmor * EffectiveArmorCoefficient ) / 100.f; 
+	
+	
+	/*获得三个暴击属性值*/
+	float SourceCriticalHitChance = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(DamageStatics().CriticalHitChanceDef,EvaluateParameters,SourceCriticalHitChance);
+	SourceCriticalHitChance = FMath::Max(SourceCriticalHitChance, 0.f);
+	
+	float TargetCriticalHitResistence = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(DamageStatics().CriticalHitResistanceDef,EvaluateParameters,TargetCriticalHitResistence);
+	TargetCriticalHitResistence = FMath::Max(TargetCriticalHitResistence, 0.f);
+	
+	float SourceCriticalHitDamage = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(DamageStatics().CriticalHitDamageDef,EvaluateParameters,SourceCriticalHitDamage);
+	SourceCriticalHitDamage = FMath::Max(SourceCriticalHitDamage, 0.f);
+	
+	const FRealCurve* CriticalHitResistance = CharacterClassInfo->DamageCalculationCoefficients->FindCurve(FName("CriticalHitResistance"),FString());
+	const float CriticalHitResistanceCoefficient = CriticalHitResistance->Eval(TargetCombatInterface->GetPlayerLevel());
+	
+	//暴击抗性会按一定比例降低暴击几率
+	const float EffectiveCriticalHitChance = SourceCriticalHitChance - TargetCriticalHitResistence * CriticalHitResistanceCoefficient;
+	const bool bCriticalHit = FMath::RandRange(1,100) < EffectiveCriticalHitChance;
+	
+	UAuraAbilitySystemLibrary::SetIsCriticalHit(EffectContextHandle,bCriticalHit);
+	
+	//造成暴击时伤害翻倍
+	Damage = bCriticalHit ? Damage * 2.f + SourceCriticalHitDamage : Damage;
+	
+	
+	const FGameplayModifierEvaluatedData EvaluatedData(UAuraAttributeSet::GetIncomingDamageAttribute(),EGameplayModOp::Additive,Damage);
+	OutExecutionOutput.AddOutputModifier(EvaluatedData);
+	
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\ModMagCalc\MMC_MaxHealth.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/ModMagCalc/MMC_MaxHealth.h"
+
+#include "AbilitySystem/AuraAttributeSet.h"
+#include "Interaction/CombatInterface.h"
+
+UMMC_MaxHealth::UMMC_MaxHealth()
+{
+	VigorDef.AttributeToCapture = UAuraAttributeSet::GetVigorAttribute();
+	VigorDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Target;
+	VigorDef.bSnapshot = false;
+	
+	
+	RelevantAttributesToCapture.Add(VigorDef);
+}
+
+float UMMC_MaxHealth::CalculateBaseMagnitude_Implementation(const FGameplayEffectSpec& Spec) const
+{
+	//从Source和Target获取Tags
+	const FGameplayTagContainer* SourceTags = Spec.CapturedSourceTags.GetAggregatedTags();
+	const FGameplayTagContainer* TargetTags = Spec.CapturedTargetTags.GetAggregatedTags();
+	
+	FAggregatorEvaluateParameters EvaluationParameters;
+	EvaluationParameters.SourceTags = SourceTags;
+	EvaluationParameters.TargetTags = TargetTags;
+	
+	float Vigor = 0.0f;
+	GetCapturedAttributeMagnitude(VigorDef,Spec,EvaluationParameters,Vigor);
+	Vigor = FMath::Max(Vigor,0.0f);
+	
+	ICombatInterface* CombatInterface = Cast<ICombatInterface>(Spec.GetContext().GetSourceObject());
+	const int32 PlayerLevel = CombatInterface->GetPlayerLevel();
+	
+	return 80.f + 2.5f * Vigor + 10.f * PlayerLevel;
+	
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AbilitySystem\ModMagCalc\MMC_MaxMana.cpp
+================================================================================
+
+
+
+
+#include "AbilitySystem/ModMagCalc/MMC_MaxMana.h"
+
+#include "AbilitySystem/AuraAttributeSet.h"
+#include "Interaction/CombatInterface.h"
+
+UMMC_MaxMana::UMMC_MaxMana()
+{
+	IntDef.AttributeToCapture = UAuraAttributeSet::GetIntelligenceAttribute();
+	IntDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Target;
+	IntDef.bSnapshot = false;
+	
+	
+	RelevantAttributesToCapture.Add(IntDef);
+}
+
+float UMMC_MaxMana::CalculateBaseMagnitude_Implementation(const FGameplayEffectSpec& Spec) const
+{
+	//从Source和Target获取Tags
+	const FGameplayTagContainer* SourceTags = Spec.CapturedSourceTags.GetAggregatedTags();
+	const FGameplayTagContainer* TargetTags = Spec.CapturedTargetTags.GetAggregatedTags();
+	
+	FAggregatorEvaluateParameters EvaluationParameters;
+	EvaluationParameters.SourceTags = SourceTags;
+	EvaluationParameters.TargetTags = TargetTags;
+	
+	float Int = 0.0f;
+	GetCapturedAttributeMagnitude(IntDef,Spec,EvaluationParameters,Int);
+	Int = FMath::Max(Int,0.0f);
+	
+	ICombatInterface* CombatInterface = Cast<ICombatInterface>(Spec.GetContext().GetSourceObject());
+	const int32 PlayerLevel = CombatInterface->GetPlayerLevel();
+	
+	return 50.f + Int * 2.5f + 15.f * PlayerLevel;
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Actor\AuraEffectActor.cpp
+================================================================================
+
+
+
+
+#include "Actor/AuraEffectActor.h"
+
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemBlueprintLibrary.h"
+
+
+AAuraEffectActor::AAuraEffectActor()
+{
+ 	
+	PrimaryActorTick.bCanEverTick = false;
+	
+	SetRootComponent(CreateDefaultSubobject<USceneComponent>("SceneRoot"));
+	
+
+}
+
+
+
+
+void AAuraEffectActor::BeginPlay()
+{
+	Super::BeginPlay();
+
+}
+
+void AAuraEffectActor::ApplyEffectToTarget(AActor* TargetActor, TSubclassOf<UGameplayEffect> GameplayEffectClass)
+{
+	
+	
+	if (TargetActor->ActorHasTag(FName("Enemy")) && !bApplyEffectsToEnemies) return;
+	
+	UAbilitySystemComponent* TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor);
+	if (TargetASC == nullptr) return;
+	
+	check(GameplayEffectClass)
+	FGameplayEffectContextHandle EffectContextHandle = TargetASC->MakeEffectContext();
+	EffectContextHandle.AddSourceObject(this);
+	const FGameplayEffectSpecHandle EffectSpecHandle = TargetASC->MakeOutgoingSpec(GameplayEffectClass,ActorLevel,EffectContextHandle);
+	const FActiveGameplayEffectHandle ActiveEffectHandle = TargetASC->ApplyGameplayEffectSpecToSelf(*EffectSpecHandle.Data.Get());
+	
+	
+	const bool bIsInfinite = EffectSpecHandle.Data.Get()->Def.Get()->DurationPolicy == EGameplayEffectDurationType::Infinite;
+	if (bIsInfinite && InfiniteEffectRemovalPolicy == EEffectRemovalPolicy::RemoveOnEndOverlap)
+	{
+		ActiveEffectHandles.Add(ActiveEffectHandle,TargetASC);
+	}
+	
+	if (!bIsInfinite)
+	{
+		Destroy();
+	}
+	
+}
+
+void AAuraEffectActor::OnOverlap(AActor* TargetActor)
+{
+	if (TargetActor->ActorHasTag(FName("Enemy")) && !bApplyEffectsToEnemies) return;
+
+	if (InstantEffectApplicationPolicy == EEffectApplicationPolicy::ApplyOnEndOverlap)
+	{
+		ApplyEffectToTarget(TargetActor,InstantGameplayEffectClass);
+	}
+	if (DurationEffectApplicationPolicy == EEffectApplicationPolicy::ApplyOnOverlap)
+	{
+		ApplyEffectToTarget(TargetActor,DurationGameplayEffectClass);
+	}
+	if (InfiniteEffectApplicationPolicy == EEffectApplicationPolicy::ApplyOnOverlap)
+	{
+		ApplyEffectToTarget(TargetActor,InfiniteGameplayEffectClass);
+	}
+}
+
+void AAuraEffectActor::OnEndOverlap(AActor* TargetActor)
+{
+	if (TargetActor->ActorHasTag(FName("Enemy")) && !bApplyEffectsToEnemies) return;
+
+	if (InstantEffectApplicationPolicy == EEffectApplicationPolicy::ApplyOnEndOverlap)
+	{
+		ApplyEffectToTarget(TargetActor,InstantGameplayEffectClass);
+	}
+	if (DurationEffectApplicationPolicy == EEffectApplicationPolicy::ApplyOnEndOverlap)
+	{
+		ApplyEffectToTarget(TargetActor,DurationGameplayEffectClass);
+	}
+	if (InfiniteEffectApplicationPolicy == EEffectApplicationPolicy::ApplyOnEndOverlap)
+	{
+		ApplyEffectToTarget(TargetActor,InfiniteGameplayEffectClass);
+	}
+	if (InfiniteEffectRemovalPolicy == EEffectRemovalPolicy::RemoveOnEndOverlap)
+	{
+		UAbilitySystemComponent* TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor);
+		if (!IsValid(TargetASC)) return;
+		TArray<FActiveGameplayEffectHandle> HandlesToRemove;
+		for (auto HandlePair:ActiveEffectHandles)
+		{
+			if (TargetASC == HandlePair.Value)
+			{
+				TargetASC->RemoveActiveGameplayEffect(HandlePair.Key,1);
+				HandlesToRemove.Add(HandlePair.Key);
+			}
+		}
+		for (auto& Handle:HandlesToRemove)
+		{
+			ActiveEffectHandles.FindAndRemoveChecked(Handle);
+		}
+	}
+}
+
+
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Actor\AuraProjectile.cpp
+================================================================================
+
+
+
+
+#include "Actor/AuraProjectile.h"
+
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
+#include "Components/SphereComponent.h"
+#include "GameFramework/ProjectileMovementComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "Aura/Aura.h"
+#include "Components/AudioComponent.h"
+#include "Kismet/GameplayStatics.h"
+
+
+AAuraProjectile::AAuraProjectile()
+{
+ 	
+	PrimaryActorTick.bCanEverTick = false;
+	bReplicates = true;
+	
+	Sphere = CreateDefaultSubobject<USphereComponent>("Sphere");
+	SetRootComponent(Sphere);
+	Sphere->SetCollisionObjectType(ECC_Projectile);
+	Sphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	Sphere->SetCollisionResponseToAllChannels(ECR_Ignore);
+	Sphere->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
+	Sphere->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Overlap);
+	Sphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	
+	ProjectileMovement = CreateDefaultSubobject<UProjectileMovementComponent>("ProjectileMovement");
+	ProjectileMovement->InitialSpeed = 500.0f;
+	ProjectileMovement->MaxSpeed = 500.0f;
+	ProjectileMovement->ProjectileGravityScale = 0.0f;
+}
+
+
+void AAuraProjectile::BeginPlay()
+{
+	Super::BeginPlay();
+	SetLifeSpan(LifeSpan);
+	Sphere->OnComponentBeginOverlap.AddDynamic(this,&AAuraProjectile::OnSphereOverlap);
+	
+	LoopingSoundComponent = UGameplayStatics::SpawnSoundAttached(LoopingSound,GetRootComponent());
+}
+
+void AAuraProjectile::Destroyed()
+{
+	if (!bHit && !HasAuthority())
+	{
+		UGameplayStatics::PlaySoundAtLocation(this,ImpactSound,GetActorLocation(),FRotator::ZeroRotator);
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this,ImpactEffect,GetActorLocation());
+		if (LoopingSoundComponent) LoopingSoundComponent->Stop();
+		
+	}
+	Super::Destroyed();
+}
+
+void AAuraProjectile::OnSphereOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+                                      UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if(DamageEffectSpecHandle.Data.IsValid() && DamageEffectSpecHandle.Data.Get()->GetContext().GetEffectCauser() == OtherActor)
+	{
+		return;
+	}
+	if (!bHit)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this,ImpactSound,GetActorLocation(),FRotator::ZeroRotator);
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this,ImpactEffect,GetActorLocation());
+		if (LoopingSoundComponent) LoopingSoundComponent->Stop();
+	}
+	
+	
+	if (HasAuthority())
+	{
+		
+		if (UAbilitySystemComponent* TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(OtherActor))
+		{
+			TargetASC->ApplyGameplayEffectSpecToSelf(*DamageEffectSpecHandle.Data.Get());
+		}
+		
+		Destroy();
+	}
+	else
+	{
+		bHit = true;
+	}
+}
+
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AI\AuraAIController.cpp
+================================================================================
+
+
+
+
+#include "AI/AuraAIController.h"
+
+#include "BehaviorTree/BehaviorTreeComponent.h"
+#include "BehaviorTree/BlackboardComponent.h"
+
+AAuraAIController::AAuraAIController()
+{
+	Blackboard = CreateDefaultSubobject<UBlackboardComponent>("BlackboardComponent");
+	check(Blackboard);
+	BehaviorTreeComponent = CreateDefaultSubobject<UBehaviorTreeComponent>("BehaviorTreeComponent");
+	check(BehaviorTreeComponent);
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AI\BTService_FindNearestPlayer.cpp
+================================================================================
+
+
+
+
+#include "AI/BTService_FindNearestPlayer.h"
+
+#include "AIController.h"
+#include "BehaviorTree/BTFunctionLibrary.h"
+#include "Kismet/GameplayStatics.h"
+
+void UBTService_FindNearestPlayer::TickNode(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds)
+{
+	Super::TickNode(OwnerComp, NodeMemory, DeltaSeconds);
+
+	APawn* OwingPawn= AIOwner->GetPawn();
+	
+	const FName TargetTag = OwingPawn->ActorHasTag(FName("Player")) ? FName("Enemy") : FName("Player");
+	TArray<AActor*> ActorsWithTag;
+	UGameplayStatics::GetAllActorsWithTag(OwingPawn,TargetTag,ActorsWithTag);
+	
+	float ClosestDistance = TNumericLimits<float>::Max();
+	AActor* ClosestActor = nullptr;
+	for (AActor* Actor : ActorsWithTag)
+	{
+		
+		if (IsValid(Actor) && IsValid(OwingPawn))
+		{
+			const float Distance = OwingPawn->GetDistanceTo(Actor);
+			if (Distance < ClosestDistance)
+			{
+				ClosestDistance = Distance;
+				ClosestActor = Actor;
+			}
+		}
+	}
+	UBTFunctionLibrary::SetBlackboardValueAsObject(this,TargetToFollowSelector,ClosestActor);
+	UBTFunctionLibrary::SetBlackboardValueAsFloat(this,DistanceToTargetSelector,ClosestDistance);
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\AI\BTTask_Attack.cpp
+================================================================================
+
+
+
+
+#include "AI/BTTask_Attack.h"
+
+EBTNodeResult::Type UBTTask_Attack::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
+{
+	return Super::ExecuteTask(OwnerComp, NodeMemory);
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Character\AuraCharacter.cpp
+================================================================================
+
+
+
+
+#include "Character/AuraCharacter.h"
+
+#include "AbilitySystemComponent.h"
+#include "AbilitySystem/AuraAbilitySystemComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Player/AuraPlayerController.h"
+#include "Player/AuraPlayerState.h"
+#include "UI/HUD/AuraHUD.h"
+
+AAuraCharacter::AAuraCharacter()
+{
+	GetCharacterMovement()->bOrientRotationToMovement = true;
+	GetCharacterMovement()->RotationRate = FRotator(0.0f,400.f,0.0f);
+	GetCharacterMovement()->bConstrainToPlane = true;
+	GetCharacterMovement()->bSnapToPlaneAtStart = true;
+	
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationYaw = false;
+	bUseControllerRotationRoll = false;
+}
+
+void AAuraCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	//为服务器初始化Ability actor info
+	InitAbilityActorInfo();
+	AddCharacterAbilities();
+	
+}
+
+void AAuraCharacter::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+	
+	//为客户端初始化Ability actor info
+	InitAbilityActorInfo();
+}
+
+int32 AAuraCharacter::GetPlayerLevel()
+{
+	AAuraPlayerState* AuraPlayerState = GetPlayerState<AAuraPlayerState>();
+	check(AuraPlayerState);
+	return AuraPlayerState->GetPlayerLevel();
+}
+
+
+void AAuraCharacter::InitAbilityActorInfo()
+{
+	AAuraPlayerState* AuraPlayerState = GetPlayerState<AAuraPlayerState>();
+	check(AuraPlayerState);
+	AuraPlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(AuraPlayerState,this);
+	Cast<UAuraAbilitySystemComponent>(AuraPlayerState->GetAbilitySystemComponent())->AbilityActorInfoSet();
+	AbilitySystemComponent = AuraPlayerState->GetAbilitySystemComponent();
+	AttributeSet = AuraPlayerState->GetAttributeSet();
+	
+	if(AAuraPlayerController* AuraPlayerController = Cast<AAuraPlayerController>(GetController()))
+	{
+		if (AAuraHUD* AuraHUD = Cast<AAuraHUD>(AuraPlayerController->GetHUD()))
+		{
+			AuraHUD->InitOverlay(AuraPlayerController,AuraPlayerState,AbilitySystemComponent,AttributeSet);
+		}
+	}
+	InitializeDefaultAttributes();
+	
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Character\AuraCharacterBase.cpp
+================================================================================
+
+
+
+
+#include "Character/AuraCharacterBase.h"
+#include "AbilitySystemComponent.h"
+#include "AuraGameplayTags.h"
+#include "AbilitySystem/AuraAbilitySystemComponent.h"
+#include "Aura/Aura.h"
+#include "Components/CapsuleComponent.h"
+
+
+AAuraCharacterBase::AAuraCharacterBase()
+{
+ 	
+	PrimaryActorTick.bCanEverTick = false;
+	
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Camera,ECR_Ignore);
+	GetCapsuleComponent()->SetGenerateOverlapEvents(false);
+	GetMesh()->SetCollisionResponseToChannel(ECC_Camera,ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECC_Projectile,ECR_Overlap);
+	GetMesh()->SetGenerateOverlapEvents(true);
+	Weapon = CreateDefaultSubobject<USkeletalMeshComponent>("Weapon");
+	Weapon->SetupAttachment(GetMesh(),FName("WeaponHandSocket"));
+	Weapon->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
+
+UAbilitySystemComponent* AAuraCharacterBase::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComponent;
+}
+
+
+UAnimMontage* AAuraCharacterBase::GetHitReactMontage_Implementation()
+{
+	return HitReactMontage;
+}
+
+void AAuraCharacterBase::Die()
+{
+	Weapon->DetachFromComponent(FDetachmentTransformRules(EDetachmentRule::KeepWorld,true));
+	MulticastHandleDeath();
+}
+
+void AAuraCharacterBase::MulticastHandleDeath_Implementation()
+{
+	Weapon->SetSimulatePhysics(true);
+	Weapon->SetEnableGravity(true);
+	Weapon->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+	
+	GetMesh()->SetSimulatePhysics(true);
+	GetMesh()->SetEnableGravity(true);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+	GetMesh()->SetCollisionResponseToChannel(ECC_WorldStatic,ECR_Block);
+	
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Dissolve();
+	bDead = true;
+}
+
+void AAuraCharacterBase::BeginPlay()
+{
+	Super::BeginPlay();
+	
+}
+
+FVector AAuraCharacterBase::GetCombatSocketLocation_Implementation(const FGameplayTag& MontageTag)
+{
+	const FAuraGameplayTags& GameplayTags = FAuraGameplayTags::Get();
+	if (MontageTag.MatchesTagExact(GameplayTags.Montage_Attack_Weapon) && IsValid(Weapon))
+	{
+		return Weapon->GetSocketLocation(WeaponTipSocketName);
+	}
+	if (MontageTag.MatchesTagExact(GameplayTags.Montage_Attack_LeftHand))
+	{
+		return GetMesh()->GetSocketLocation(LeftHandSocketName);
+	}
+	if (MontageTag.MatchesTagExact(GameplayTags.Montage_Attack_RightHand))
+	{
+		return GetMesh()->GetSocketLocation(RightHandSocketName);
+	}
+	return FVector();
+}
+
+bool AAuraCharacterBase::IsDead_Implementation() const
+{
+	return bDead;
+}
+
+AActor* AAuraCharacterBase::GetAvatar_Implementation() 
+{
+	return this;
+}
+
+TArray<FTaggedMontage> AAuraCharacterBase::GetAttackMontages_Implementation()
+{
+	return AttackMontages;
+}
+
+void AAuraCharacterBase::InitAbilityActorInfo()
+{
+}
+
+
+void AAuraCharacterBase::ApplyEffectToSelf(TSubclassOf<UGameplayEffect> GameplayEffectClass, float Level) const
+{
+	check(IsValid(GetAbilitySystemComponent()));
+	check(GameplayEffectClass);
+	FGameplayEffectContextHandle ContextHandle = GetAbilitySystemComponent()->MakeEffectContext();
+	ContextHandle.AddSourceObject(this);
+	const FGameplayEffectSpecHandle SpecHandle = GetAbilitySystemComponent()->MakeOutgoingSpec(GameplayEffectClass,Level,ContextHandle);
+	GetAbilitySystemComponent()->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(),GetAbilitySystemComponent());
+}
+
+void AAuraCharacterBase::InitializeDefaultAttributes() const
+{
+	ApplyEffectToSelf(DefaultPrimaryAttributes,1.f);
+	ApplyEffectToSelf(DefaultSecondaryAttributes,1.f);
+	ApplyEffectToSelf(DefaultVitalAttributes,1.f);
+}
+
+void AAuraCharacterBase::AddCharacterAbilities()
+{
+	UAuraAbilitySystemComponent* AuraASC = CastChecked<UAuraAbilitySystemComponent>(AbilitySystemComponent);
+	if (!HasAuthority()) return;
+	
+	AuraASC->AddCharacterAbilities(StartupAbilities);
+}
+
+void AAuraCharacterBase::Dissolve()
+{
+	if (IsValid(DissolveMaterialInstance))
+	{
+		UMaterialInstanceDynamic* DynamicMatInst = UMaterialInstanceDynamic::Create(DissolveMaterialInstance,this);
+		GetMesh()->SetMaterial(0, DynamicMatInst);
+		StartDissolveTimeline(DynamicMatInst);
+	}
+	if (IsValid(WeaponDissolveMaterialInstance))
+	{
+		UMaterialInstanceDynamic* DynamicMatInst = UMaterialInstanceDynamic::Create(WeaponDissolveMaterialInstance,this);
+		Weapon->SetMaterial(0, DynamicMatInst);
+		StartWeaponDissolveTimeline(DynamicMatInst);
+	}
+}
+
+
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Character\AuraEnemy.cpp
+================================================================================
+
+
+
+
+#include "Character/AuraEnemy.h"
+
+#include "AIController.h"
+#include "AbilitySystem/AuraAbilitySystemComponent.h"
+#include "AbilitySystem/AuraAbilitySystemLibrary.h"
+#include "AbilitySystem/AuraAttributeSet.h"
+#include "Aura/Aura.h"
+#include "AuraGameplayTags.h" 
+#include "AI/AuraAIController.h"
+#include "BehaviorTree/BehaviorTree.h"
+#include "BehaviorTree/BlackboardComponent.h"
+#include "Components/WidgetComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "UI/Widget/AuraUserWidget.h"
+
+
+AAuraEnemy::AAuraEnemy()
+{
+	GetMesh()->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);
+	
+	AbilitySystemComponent = CreateDefaultSubobject<UAuraAbilitySystemComponent>("AbilitySystemComponent");
+	AbilitySystemComponent->SetIsReplicated(true);
+	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
+	
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationYaw = false;
+	bUseControllerRotationRoll = false;
+	GetCharacterMovement()->bUseControllerDesiredRotation = true;
+	
+	AttributeSet = CreateDefaultSubobject<UAuraAttributeSet>("AttributeSet");
+	
+	HealthBar = CreateDefaultSubobject<UWidgetComponent>("HealthBar");
+	HealthBar->SetupAttachment(GetRootComponent());
+}
+
+void AAuraEnemy::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	
+	if (!HasAuthority()) return;
+	AuraAIController = Cast<AAuraAIController>(NewController);
+	AuraAIController->GetBlackboardComponent()->InitializeBlackboard(*BehaviorTree->BlackboardAsset);
+	AuraAIController->RunBehaviorTree(BehaviorTree);
+	AuraAIController->GetBlackboardComponent()->SetValueAsBool(FName("HitReacting"),false);
+	AuraAIController->GetBlackboardComponent()->SetValueAsBool(FName("RangedAttacker"),CharacterClass != ECharacterClass::Warrior);
+	
+}
+
+
+void AAuraEnemy::HighLightActor()
+{
+		GetMesh()->SetRenderCustomDepth(true);
+		GetMesh()->SetCustomDepthStencilValue(CUSTOM_DEPTH_RED);
+		Weapon->SetRenderCustomDepth(true);
+		Weapon->SetCustomDepthStencilValue(CUSTOM_DEPTH_RED);
+}
+
+void AAuraEnemy::UnHighLightActor()
+{
+		GetMesh()->SetRenderCustomDepth(false);
+		Weapon->SetRenderCustomDepth(false);
+}
+
+int32 AAuraEnemy::GetPlayerLevel()
+{
+	return Level;
+}
+
+void AAuraEnemy::Die()
+{
+	SetLifeSpan(LifeSpan);
+	Super::Die();
+}
+
+void AAuraEnemy::SetCombatTarget_Implementation(AActor* InCombatTarget)
+{
+	CombatTarget = InCombatTarget;
+}
+
+AActor* AAuraEnemy::GetCombatTarget_Implementation() const
+{
+	return CombatTarget;
+}
+
+
+void AAuraEnemy::BeginPlay()
+{
+	Super::BeginPlay();
+	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+	InitAbilityActorInfo();
+	if (HasAuthority())
+	{
+		UAuraAbilitySystemLibrary::GiveStartupAbilities(this,AbilitySystemComponent,CharacterClass);
+	}
+	
+	
+	
+	if (UAuraUserWidget* AuraUserWidget = Cast<UAuraUserWidget>(HealthBar->GetUserWidgetObject()))
+	{
+		AuraUserWidget->SetWidgetController(this);
+	}
+	
+	
+	if (const UAuraAttributeSet* AuraAS = CastChecked<UAuraAttributeSet>(AttributeSet))
+	{
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(AuraAS->GetHealthAttribute()).AddLambda(
+		[this](const FOnAttributeChangeData& Data)
+		{
+			OnHealthChanged.Broadcast(Data.NewValue);
+		}
+	);
+		
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(AuraAS->GetMaxHealthAttribute()).AddLambda(
+	[this](const FOnAttributeChangeData& Data)
+		{
+			OnMaxHealthChanged.Broadcast(Data.NewValue);
+		}
+	);
+		
+		AbilitySystemComponent->RegisterGameplayTagEvent(FAuraGameplayTags::Get().Effects_HitReact,EGameplayTagEventType::NewOrRemoved).AddUObject(
+			this,
+			&AAuraEnemy::HitReactTagChanged
+			
+		);
+		
+		OnHealthChanged.Broadcast(AuraAS->GetHealth());
+		OnMaxHealthChanged.Broadcast(AuraAS->GetMaxHealth());
+	}
+}
+
+void AAuraEnemy::HitReactTagChanged(const FGameplayTag CallbackTag, int32 NewCount)
+{
+	bHitReacting = NewCount > 0;
+	GetCharacterMovement()->MaxWalkSpeed = bHitReacting ? 0.f : BaseWalkSpeed;
+	if (AuraAIController && AuraAIController->GetBlackboardComponent())
+	{
+		AuraAIController->GetBlackboardComponent()->SetValueAsBool(FName("HitReacting"),bHitReacting);
+	}
+	
+	
+}
+
+void AAuraEnemy::InitAbilityActorInfo()
+{
+	AbilitySystemComponent->InitAbilityActorInfo(this,this);
+	Cast<UAuraAbilitySystemComponent>(AbilitySystemComponent)->AbilityActorInfoSet();
+	if (HasAuthority())
+	{
+		InitializeDefaultAttributes();
+	}
+	
+}
+
+void AAuraEnemy::InitializeDefaultAttributes() const
+{
+	
+	FString ClassName = UEnum::GetValueAsString(CharacterClass);
+	UAuraAbilitySystemLibrary::InitializeDefaultAttributes(this,CharacterClass,Level,AbilitySystemComponent);
+	
+	
+}
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Game\AuraGameModeBase.cpp
+================================================================================
+
+
+
+
+#include "Game/AuraGameModeBase.h"
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Input\AuraInputComponent.cpp
+================================================================================
+
+
+
+
+#include "Input/AuraInputComponent.h"
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Input\AuraInputConfig.cpp
+================================================================================
+
+
+
+
+#include "Input/AuraInputConfig.h"
+
+const UInputAction* UAuraInputConfig::FindAbilityInputActionForTag(const FGameplayTag& InputTag,
+	bool bLogNotFound) const
+{
+	for (const FAuraInputAction& Action : AbilityInputActions)
+	{
+		if (Action.InputAction && Action.InputTag == InputTag)
+		{
+			return Action.InputAction;
+		}
+	}
+	if (bLogNotFound)
+	{
+		UE_LOG(LogTemp,Error,TEXT("Can't find AbilityInputAction for InputTag [%s] on InputConfig [%s]"),*InputTag.ToString(),*GetNameSafe(this));
+	}
+	return nullptr;
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Interaction\CombatInterface.cpp
+================================================================================
+
+
+
+
+#include "Interaction/CombatInterface.h"
+
+// Add default functionality here for any ICombatInterface functions that are not pure virtual.
+int32 ICombatInterface::GetPlayerLevel()
+{
+	return 0;
+}
+
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Interaction\EnemyInterface.cpp
+================================================================================
+
+
+
+
+#include "Interaction/EnemyInterface.h"
+
+// Add default functionality here for any IEnemyInterface functions that are not pure virtual.
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Player\AuraPlayerController.cpp
+================================================================================
+
+
+
+
+#include "Player/AuraPlayerController.h"
+
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AuraGameplayTags.h"
+#include "EnhancedInputSubsystems.h"
+#include "NavigationPath.h"
+#include "NavigationSystem.h"
+#include "AbilitySystem/AuraAbilitySystemComponent.h"
+#include "Components/SplineComponent.h"
+#include "Input/AuraInputComponent.h"
+#include "Interaction/EnemyInterface.h"
+#include "GameFramework/Character.h"
+#include "UI/Widget/DamageTextComponent.h"
+
+
+AAuraPlayerController::AAuraPlayerController()
+{
+	bReplicates = true;
+	
+	Spline = CreateDefaultSubobject<USplineComponent>("Spline");
+}
+
+void AAuraPlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+	CursorTrace();
+	AutoRun();
+}
+
+void AAuraPlayerController::ShowDamageNumber_Implementation(float DamageAmount,ACharacter* TargetCharacter,bool bBlockedHit,bool bCriticalHit)
+{
+	if (IsValid(TargetCharacter) && DamageTextComponentClass && IsLocalController())
+	{
+		UDamageTextComponent* DamageText = NewObject<UDamageTextComponent>(TargetCharacter,DamageTextComponentClass);
+		DamageText->RegisterComponent();
+		DamageText->AttachToComponent(TargetCharacter->GetRootComponent(),FAttachmentTransformRules::KeepRelativeTransform);
+		DamageText->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+		DamageText->SetDamageText(DamageAmount,bBlockedHit,bCriticalHit);
+	}
+}
+
+void AAuraPlayerController::AutoRun()
+{
+	if (!bAutoRunning) return;
+	if (APawn* ControlledPawn = GetPawn<APawn>())
+	{
+		const FVector LocationOnSpline = Spline->FindLocationClosestToWorldLocation(ControlledPawn->GetActorLocation(),ESplineCoordinateSpace::World);
+		const FVector Direction = Spline->FindDirectionClosestToWorldLocation(LocationOnSpline,ESplineCoordinateSpace::World);
+		ControlledPawn->AddMovementInput(Direction);
+		
+		const float DistanceToDestination = (LocationOnSpline - CachedDestination).Length();
+		if (DistanceToDestination <= AutoRunAcceptanceRadius)
+		{
+			bAutoRunning = false;
+		}
+	}
+}
+
+
+void AAuraPlayerController::BeginPlay()
+{
+	Super::BeginPlay();
+	
+	check(AuraContext);
+	
+	UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+	if (Subsystem)
+	{
+		Subsystem->AddMappingContext(AuraContext,0);
+	}
+	
+	
+	bShowMouseCursor = true;
+	DefaultMouseCursor = EMouseCursor::Default;
+	
+	FInputModeGameAndUI InputModeData;
+	InputModeData.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	InputModeData.SetHideCursorDuringCapture(false);
+	SetInputMode(InputModeData);
+}
+
+void AAuraPlayerController::SetupInputComponent()
+{
+	Super::SetupInputComponent();
+	
+	UAuraInputComponent* AuraInputComponent = CastChecked<UAuraInputComponent>(InputComponent);
+	AuraInputComponent->BindAction(MoveAction,ETriggerEvent::Triggered,this,&AAuraPlayerController::Move);
+	AuraInputComponent->BindAction(ShiftAction,ETriggerEvent::Started,this,&AAuraPlayerController::ShiftPressed);
+	AuraInputComponent->BindAction(ShiftAction,ETriggerEvent::Completed,this,&AAuraPlayerController::ShiftReleased);
+
+	AuraInputComponent->BindAbilityActions(InputConfig,this,&ThisClass::AbilityInputTagPressed,&ThisClass::AbilityInputTagReleased,&ThisClass::AbilityInputTagHeld);
+}
+
+void AAuraPlayerController::Move(const FInputActionValue& InputActionValue)
+{
+	const FVector2D InputAxisVector = InputActionValue.Get<FVector2D>();
+	const FRotator Rotation = GetControlRotation();
+	const FRotator YawRotation(0.f,Rotation.Yaw,0.f);
+	
+	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+	if (APawn* ControlledPawn = GetPawn<APawn>())
+	{
+		ControlledPawn->AddMovementInput(ForwardDirection,InputAxisVector.Y);
+		ControlledPawn->AddMovementInput(RightDirection,InputAxisVector.X);
+	}
+}
+
+void AAuraPlayerController::CursorTrace()
+{
+	
+	GetHitResultUnderCursor(ECC_Visibility,false,CursorHit);
+	if (!CursorHit.bBlockingHit) return;
+	
+	LastActor = ThisActor;
+	ThisActor = Cast<IEnemyInterface>(CursorHit.GetActor());
+	
+	if (LastActor !=  ThisActor)
+	{
+		if (LastActor) LastActor->UnHighLightActor();
+		if (ThisActor) ThisActor->HighLightActor();
+	}
+}
+
+void AAuraPlayerController::AbilityInputTagPressed(FGameplayTag InputTag)
+{
+	//如果是鼠标左键点击，那么进行移动
+	if (InputTag.MatchesTagExact(FAuraGameplayTags::Get().InputTag_LMB))
+	{
+		bTargeting = ThisActor ? true : false;
+		bAutoRunning = false;
+	}
+	
+}
+
+void AAuraPlayerController::AbilityInputTagReleased(FGameplayTag InputTag)
+{
+	//如果不是鼠标左键释放，就释放技能
+	if (!InputTag.MatchesTagExact(FAuraGameplayTags::Get().InputTag_LMB))
+	{
+		if (GetASC()) GetASC()->AbilityInputTagReleased(InputTag);
+		return;
+	}
+	if (GetASC()) GetASC()->AbilityInputTagReleased(InputTag);
+	//如果锁定目标了，也释放技能
+	if (!bTargeting && !bShiftKeyDown)
+	{
+		const APawn* ControlledPawn = GetPawn();
+		if (FollowTime <= ShortPressThreshold && ControlledPawn)
+		{
+			// 短按时，也要获取一下鼠标点在了哪里！
+			FHitResult Hit;
+			if (GetHitResultUnderCursor(ECC_Visibility, false, Hit))
+			{
+				CachedDestination = Hit.ImpactPoint;
+			}
+			if (UNavigationPath* NavPath  = UNavigationSystemV1::FindPathToLocationSynchronously(this,ControlledPawn->GetActorLocation(),CachedDestination))
+			{
+				Spline->ClearSplinePoints();
+				if (NavPath->PathPoints.Num() > 0)
+				{
+					for (const FVector& PointLoc : NavPath->PathPoints)
+					{
+						Spline->AddSplinePoint(PointLoc,ESplineCoordinateSpace::World);
+					}
+					if (NavPath->PathPoints.Num() > 0)
+					{
+						CachedDestination = NavPath->PathPoints[NavPath->PathPoints.Num() - 1];
+						bAutoRunning = true;
+					}
+					
+				}
+				
+			}
+			
+			
+		}
+		FollowTime = 0.f;
+	}
+}
+
+void AAuraPlayerController::AbilityInputTagHeld(FGameplayTag InputTag)
+{
+	//如果不是鼠标左键长按，就释放技能
+	if (!InputTag.MatchesTagExact(FAuraGameplayTags::Get().InputTag_LMB))
+	{
+		if (GetASC()) GetASC()->AbilityInputTagHeld(InputTag);
+		return;
+	}
+	//如果锁定目标了，也释放技能
+	if (bTargeting || bShiftKeyDown)
+	{
+		if (GetASC())GetASC()->AbilityInputTagHeld(InputTag);
+	}
+	//如果是鼠标左键长按，就移动过去（获取点击的位置和actor现在的位置，向量相减归一化）
+	else
+	{
+		FollowTime += GetWorld()->GetDeltaSeconds();
+		if (CursorHit.bBlockingHit) CachedDestination = CursorHit.ImpactPoint;
+		if (APawn* ControlledPawn = GetPawn())
+		{
+			const FVector WorldDirection = (CachedDestination - ControlledPawn->GetActorLocation()).GetSafeNormal();
+			ControlledPawn->AddMovementInput(WorldDirection);
+		}
+	}
+	
+}
+
+UAuraAbilitySystemComponent* AAuraPlayerController::GetASC()
+{
+	if (AuraAbilitySystemComponent == nullptr)
+	{
+		AuraAbilitySystemComponent = Cast<UAuraAbilitySystemComponent>(UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(GetPawn<APawn>()));
+	}
+	return AuraAbilitySystemComponent;
+}
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\Player\AuraPlayerState.cpp
+================================================================================
+
+
+
+
+#include "Player/AuraPlayerState.h"
+
+#include "AbilitySystem/AuraAbilitySystemComponent.h"
+#include "AbilitySystem/AuraAttributeSet.h"
+#include "Net/UnrealNetwork.h"
+
+AAuraPlayerState::AAuraPlayerState()
+{
+	AbilitySystemComponent = CreateDefaultSubobject<UAuraAbilitySystemComponent>("AbilitySystemComponent");
+	AbilitySystemComponent->SetIsReplicated(true);
+	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
+	
+	AttributeSet = CreateDefaultSubobject<UAuraAttributeSet>("AttributeSet");	
+	
+	NetUpdateFrequency = 100.f;
+}
+
+void AAuraPlayerState::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	
+	DOREPLIFETIME(AAuraPlayerState, Level);
+}
+
+UAbilitySystemComponent* AAuraPlayerState::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComponent;
+}
+
+void AAuraPlayerState::OnRep_Level(int32 OldLevel)
+{
+	
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\UI\HUD\AuraHUD.cpp
+================================================================================
+
+#include "UI/HUD/AuraHUD.h"
+#include "UI/Widget/AuraUserWidget.h"
+#include "UI/WidgetController/OverlayWidgetController.h"
+#include "Blueprint/UserWidget.h"
+#include "UI/WidgetController/AttributeMenuWidgetController.h"
+
+/**
+ * 获取或创建覆盖UI的WidgetController
+ * 采用延迟初始化模式，仅在首次调用时创建实例
+ * @param WCParams WidgetController的初始化参数
+ * @return 已初始化的覆盖层WidgetController
+ */
+UOverlayWidgetController* AAuraHUD::GetOverlayWidgetController(const FWidgetControllerParams& WCParams)
+{
+	// 如果WidgetController尚未创建，则创建新实例
+	if (OverlayWidgetController == nullptr)
+	{
+		// 使用指定的类创建新的WidgetController实例
+		OverlayWidgetController = NewObject<UOverlayWidgetController>(this, OverlayWidgetControllerClass);
+		// 初始化WidgetController的参数
+		OverlayWidgetController->SetWidgetControllerParams(WCParams);
+		OverlayWidgetController->BindCallbacksToDependencies();
+	}
+	return OverlayWidgetController;
+}
+
+UAttributeMenuWidgetController* AAuraHUD::GetAttributeMenuWidgetController(const FWidgetControllerParams& WCParams)
+{
+	if (AttributeMenuWidgetController == nullptr)
+	{
+		AttributeMenuWidgetController = NewObject<UAttributeMenuWidgetController>(this, AttributeMenuWidgetControllerClass);
+		AttributeMenuWidgetController->SetWidgetControllerParams(WCParams);
+		AttributeMenuWidgetController->BindCallbacksToDependencies();
+	}
+	
+	return AttributeMenuWidgetController;
+	
+}
+
+/**
+ * 初始化游戏覆盖UI
+ * 包括创建Widget实例、获取WidgetController并将两者关联
+ * @param PC 玩家控制器
+ * @param PS 玩家状态
+ * @param ASC 能力系统组件
+ * @param AS 属性集
+ */
+void AAuraHUD::InitOverlay(APlayerController* PC, APlayerState* PS, UAbilitySystemComponent* ASC, UAttributeSet* AS)
+{
+	// 确保覆盖UI类已设置
+	checkf(OverlayWidgetClass, TEXT("OverlayWidgetClass is nullptr"));
+	// 确保覆盖UI控制器类已设置
+	checkf(OverlayWidgetControllerClass, TEXT("OverlayWidgetControllerClass is nullptr"));
+	
+	// 创建覆盖UI控件实例
+	UUserWidget* Widget = CreateWidget<UUserWidget>(GetWorld(), OverlayWidgetClass);
+	// 将控件转换为自定义的AuraUserWidget类型
+	OverlayWidget = Cast<UAuraUserWidget>(Widget);
+	
+	// 创建WidgetController参数结构体
+	const FWidgetControllerParams WidgetControllerParams(PC, PS, ASC, AS);
+	// 获取或创建WidgetController
+	UOverlayWidgetController* WidgetController = GetOverlayWidgetController(WidgetControllerParams);
+	
+	// 将WidgetController与覆盖UI控件关联
+	OverlayWidget->SetWidgetController(WidgetController);
+	
+	WidgetController->BroadcastInitialValues();
+	
+	// 将覆盖UI添加到视口
+	Widget->AddToViewport();
+}
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\UI\Widget\AuraUserWidget.cpp
+================================================================================
+
+
+
+
+#include "UI/Widget/AuraUserWidget.h"
+
+void UAuraUserWidget::SetWidgetController(UObject* InWidgetController)
+{
+	WidgetController = InWidgetController;
+	WidgetControllerSet();
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\UI\Widget\DamageTextComponent.cpp
+================================================================================
+
+
+
+
+#include "UI/Widget/DamageTextComponent.h"
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\UI\WidgetController\AttributeMenuWidgetController.cpp
+================================================================================
+
+
+
+
+#include "UI/WidgetController/AttributeMenuWidgetController.h"
+
+#include "AuraGameplayTags.h"
+#include "AbilitySystem/AuraAttributeSet.h"
+#include "AbilitySystem/Data/AttributeInfo.h"
+
+
+void UAttributeMenuWidgetController::BindCallbacksToDependencies()
+{
+	UAuraAttributeSet* AS = CastChecked<UAuraAttributeSet>(AttributeSet);
+	check(AttributeInfo);
+	for (auto& Pair : AS->TagsToAttributes)
+	{
+		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(Pair.Value()).AddLambda(
+		[this,Pair](const FOnAttributeChangeData& Data)
+		{
+			BroadcastAttributeInfo(Pair.Key,Pair.Value());
+		}	
+		
+		);
+	}
+}
+
+void UAttributeMenuWidgetController::BroadcastInitialValues()
+{
+	UAuraAttributeSet* AS = CastChecked<UAuraAttributeSet>(AttributeSet);
+	check(AttributeInfo);
+	for (auto& Pair : AS->TagsToAttributes)
+	{
+		BroadcastAttributeInfo(Pair.Key,Pair.Value());
+	}
+}
+
+void UAttributeMenuWidgetController::BroadcastAttributeInfo(const FGameplayTag& AttributeTag,
+	const FGameplayAttribute& Attribute) const
+{
+	FAuraAttributeInfo Info = AttributeInfo->FindAttributeInfoForTag(AttributeTag);
+	Info.AttributeValue = Attribute.GetNumericValue(AttributeSet);
+	AttributeInfoDelegate.Broadcast(Info);
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\UI\WidgetController\AuraWidgetController.cpp
+================================================================================
+
+
+
+
+#include "UI/WidgetController/AuraWidgetController.h"
+
+FWidgetControllerParams::FWidgetControllerParams()
+{
+}
+
+void UAuraWidgetController::SetWidgetControllerParams(const FWidgetControllerParams& WCParams)
+{
+	PlayerController = WCParams.PlayerController;
+	PlayerState = WCParams.PlayerState;
+	AbilitySystemComponent = WCParams.AbilitySystemComponent;
+	AttributeSet = WCParams.AttributeSet;
+}
+
+void UAuraWidgetController::BroadcastInitialValues()
+{
+	
+}
+
+void UAuraWidgetController::BindCallbacksToDependencies()
+{
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Private\UI\WidgetController\OverlayWidgetController.cpp
+================================================================================
+
+
+
+
+#include "UI/WidgetController/OverlayWidgetController.h"
+
+#include "AbilitySystem/AuraAbilitySystemComponent.h"
+#include "AbilitySystem/AuraAttributeSet.h"
+
+void UOverlayWidgetController::BroadcastInitialValues()
+{
+	const UAuraAttributeSet* AuraAttributeSet = CastChecked<UAuraAttributeSet>(AttributeSet);
+	OnHealthChanged.Broadcast(AuraAttributeSet->GetHealth());
+	OnMaxHealthChanged.Broadcast(AuraAttributeSet->GetMaxHealth());
+	OnManaChanged.Broadcast(AuraAttributeSet->GetMana());
+	OnMaxManaChanged.Broadcast(AuraAttributeSet->GetMaxMana());
+	
+	
+}
+
+void UOverlayWidgetController::BindCallbacksToDependencies()
+{
+	const UAuraAttributeSet* AuraAttributeSet = CastChecked<UAuraAttributeSet>(AttributeSet);
+	
+	
+	AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(AuraAttributeSet->GetHealthAttribute()).AddLambda(
+		
+	[this](const FOnAttributeChangeData& Data)
+		{
+			OnHealthChanged.Broadcast(Data.NewValue);
+		}
+	);
+
+	AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(AuraAttributeSet->GetMaxHealthAttribute()).AddLambda(
+		[this](const FOnAttributeChangeData& Data)
+		{
+			OnMaxHealthChanged.Broadcast(Data.NewValue);
+		}
+	);
+
+	AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(AuraAttributeSet->GetManaAttribute()).AddLambda(
+		[this](const FOnAttributeChangeData& Data)
+		{
+			OnManaChanged.Broadcast(Data.NewValue);
+		}
+	);
+	AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(AuraAttributeSet->GetMaxManaAttribute()).AddLambda(
+		[this](const FOnAttributeChangeData& Data)
+		{
+			OnMaxManaChanged.Broadcast(Data.NewValue);
+		}
+	);
+	
+	
+	Cast<UAuraAbilitySystemComponent>(AbilitySystemComponent)->EffectAssetTags.AddLambda(
+		[this](const FGameplayTagContainer& AssetTags)
+		{
+			for (const FGameplayTag& Tag : AssetTags)
+			{
+				FGameplayTag MessageTag = FGameplayTag::RequestGameplayTag(FName("Message"));
+				if(Tag.MatchesTag(MessageTag))
+				{
+					const FUIWidgetRow* Row = GetDataTableRowByTag<FUIWidgetRow>(MessageWidgetDataTable,Tag);
+					MessageWidgetRowDelegate.Broadcast(*Row);
+				}
+				
+				
+				
+			}
+		}
+	);
+}
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AuraAbilityTypes.h
+================================================================================
+
+﻿#pragma once
+
+#include "GameplayEffectTypes.h"
+#include "AuraAbilityTypes.generated.h"
+
+USTRUCT(BlueprintType)
+struct  FAuraGameplayEffectContext : public FGameplayEffectContext
+{
+	GENERATED_BODY()
+
+public:
+	bool IsCriticalHit() const{ return bIsCriticalHit; }
+	bool IsBlockedHit() const{ return bIsBlockHit; }
+	
+	void SetIsCriticalHit(bool bInIsCriticalHit){ bIsCriticalHit = bInIsCriticalHit; }
+	void SetIsBlockHit(bool bInIsBlockHit){ bIsBlockHit = bInIsBlockHit; }
+	
+	virtual UScriptStruct* GetScriptStruct() const
+	{
+		return StaticStruct();
+	};
+	
+	/** Creates a copy of this context, used to duplicate for later modifications */
+	virtual FAuraGameplayEffectContext* Duplicate() const
+	{
+		FAuraGameplayEffectContext* NewContext = new FAuraGameplayEffectContext();
+		*NewContext = *this;
+		if (GetHitResult())
+		{
+			// Does a deep copy of the hit result
+			NewContext->AddHitResult(*GetHitResult(), true);
+		}
+		return NewContext;
+	}
+	
+	virtual bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess) ;
+protected:
+	
+	UPROPERTY()
+	bool bIsBlockHit = false;
+	
+	UPROPERTY()
+	bool bIsCriticalHit = false;
+
+	
+	
+};
+
+
+template<>
+struct TStructOpsTypeTraits<FAuraGameplayEffectContext> : TStructOpsTypeTraitsBase2<FAuraGameplayEffectContext>
+{
+	enum
+	{
+		WithNetSerializer = true,
+		WithCopy = true
+	};
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AuraAssetManager.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/AssetManager.h"
+#include "AuraAssetManager.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraAssetManager : public UAssetManager
+{
+	GENERATED_BODY()
+public:
+	
+	static UAuraAssetManager& Get();
+	
+protected:
+
+		virtual void StartInitialLoading() override;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AuraGameplayTags.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
+
+/**
+ * AuraGameplayTags
+ * 包含原生GameplayTags的单例
+ */
+
+struct FAuraGameplayTags
+{
+public:
+	static const FAuraGameplayTags& Get() { return GameplayTags; }
+	static void InitializeNativeGameplayTags();
+	
+	FGameplayTag Attributes_Primary_Strength;
+	FGameplayTag Attributes_Primary_Intelligence;
+	FGameplayTag Attributes_Primary_Resilience;
+	FGameplayTag Attributes_Primary_Vigor;
+	
+	FGameplayTag Attributes_Secondary_Armor;
+	FGameplayTag Attributes_Secondary_ArmorPenetration;
+	FGameplayTag Attributes_Secondary_BlockChance;
+	FGameplayTag Attributes_Secondary_CriticalHitChance;
+	FGameplayTag Attributes_Secondary_CriticalHitDamage;
+	FGameplayTag Attributes_Secondary_CriticalHitResistance;
+	FGameplayTag Attributes_Secondary_HealthRegeneration;
+	FGameplayTag Attributes_Secondary_ManaRegeneration;
+	FGameplayTag Attributes_Secondary_MaxHealth;
+	FGameplayTag Attributes_Secondary_MaxMana;
+
+	FGameplayTag Attributes_Resistance_Fire;
+	FGameplayTag Attributes_Resistance_Lightning;
+	FGameplayTag Attributes_Resistance_Arcane;
+	FGameplayTag Attributes_Resistance_Physical;
+	
+	FGameplayTag InputTag_LMB;
+	FGameplayTag InputTag_RMB;
+	FGameplayTag InputTag_1;
+	FGameplayTag InputTag_2;
+	FGameplayTag InputTag_3;
+	FGameplayTag InputTag_4;
+	
+	FGameplayTag Damage;
+	FGameplayTag Damage_Fire;
+	FGameplayTag Damage_Lightning;
+	FGameplayTag Damage_Arcane;
+	FGameplayTag Damage_Physical;
+	
+	FGameplayTag Abilities_Attack;
+	
+	FGameplayTag Montage_Attack_Weapon;
+	FGameplayTag Montage_Attack_RightHand;
+	FGameplayTag Montage_Attack_LeftHand;
+	
+	TMap<FGameplayTag,FGameplayTag> DamageTypesToResistance;
+	
+	FGameplayTag Effects_HitReact;
+	
+	
+private:
+	static FAuraGameplayTags GameplayTags;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\AuraAbilitySystemComponent.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AbilitySystemComponent.h"
+#include "AuraAbilitySystemComponent.generated.h"
+
+
+DECLARE_MULTICAST_DELEGATE_OneParam(FEffectAssetTags,const FGameplayTagContainer& /*AssetTags*/)
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraAbilitySystemComponent : public UAbilitySystemComponent
+{
+	GENERATED_BODY()
+public:
+	void AbilityActorInfoSet();
+	
+	FEffectAssetTags EffectAssetTags;
+	
+	void AddCharacterAbilities(const TArray<TSubclassOf<UGameplayAbility>>& StartupAbilities);
+	
+	void AbilityInputTagHeld(const FGameplayTag& InputTags);
+	void AbilityInputTagReleased(const FGameplayTag& InputTag);
+protected:
+	UFUNCTION(Client, Reliable)
+	void ClientEffectApplied(UAbilitySystemComponent* AbilitySystemComponent, const FGameplayEffectSpec& EffectSpec, FActiveGameplayEffectHandle ActiveEffectHandle);
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\AuraAbilitySystemGlobals.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AbilitySystemGlobals.h"
+#include "AuraAbilitySystemGlobals.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraAbilitySystemGlobals : public UAbilitySystemGlobals
+{
+	GENERATED_BODY()
+	
+	
+	virtual FGameplayEffectContext* AllocGameplayEffectContext() const override; 
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\AuraAbilitySystemLibrary.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Data/CharacterClassInfo.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
+#include "AuraAbilitySystemLibrary.generated.h"
+
+
+struct FGameplayEffectContextHandle;
+class UAbilitySystemComponent;
+class UAttributeMenuWidgetController;
+class UOverlayWidgetController;
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraAbilitySystemLibrary : public UBlueprintFunctionLibrary
+{
+	GENERATED_BODY()
+	
+public:
+	
+	UFUNCTION(BlueprintPure,Category="AuraAbilitySystemLibrary|WidgetController")
+	static UOverlayWidgetController* GetOverlayWidgetController(const UObject* WorldContextObject);
+	
+	UFUNCTION(BlueprintPure,Category="AuraAbilitySystemLibrary|WidgetController")
+	static UAttributeMenuWidgetController* GetAttributeMenuWidgetController(const UObject* WorldContextObject);
+	
+	UFUNCTION(BlueprintCallable,Category="AuraAbilitySystemLibrary|CharacterClassDefaults")
+	static void InitializeDefaultAttributes(const UObject* WorldContextObject,ECharacterClass CharacterClass,float Level,UAbilitySystemComponent* ASC);
+
+	UFUNCTION(BlueprintCallable,Category="AuraAbilitySystemLibrary|CharacterClassDefaults")
+	static void GiveStartupAbilities(const UObject* WorldContextObject,UAbilitySystemComponent* ASC,ECharacterClass CharacterClass);
+	
+	UFUNCTION(BlueprintCallable,Category="AuraAbilitySystemLibrary|CharacterClassDefaults")
+	static UCharacterClassInfo* GetCharacterClassInfo(const UObject* WorldContextObject);
+	
+	UFUNCTION(BlueprintPure,Category="AuraAbilitySystemLibrary|GameplayEffects")
+	static bool IsBlockedHit(const FGameplayEffectContextHandle& EffectContextHandle);
+		
+	UFUNCTION(BlueprintPure,Category="AuraAbilitySystemLibrary|GameplayEffects")
+	static bool IsCriticalHit(const FGameplayEffectContextHandle& EffectContextHandle);
+	
+	UFUNCTION(BlueprintCallable,Category="AuraAbilitySystemLibrary|GameplayEffects")
+	static void SetIsBlockedHit(UPARAM(ref) FGameplayEffectContextHandle& EffectContextHandle,bool bInIsBlockedHit);
+	
+	UFUNCTION(BlueprintCallable,Category="AuraAbilitySystemLibrary|GameplayEffects")
+	static void SetIsCriticalHit(UPARAM(ref) FGameplayEffectContextHandle& EffectContextHandle,bool bInIsCriticalHit);
+	
+	UFUNCTION(BlueprintCallable,Category="AuraAbilitySystemLibrary|GameplayMechanics")
+	static void GetLivePlayersWithRadius(const UObject* WorldContextObject,TArray<AActor*>& OutOverlappingActors,const TArray<AActor*>& ActorsToIgnore,float Radius,const FVector& SphereOrigin);
+	
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\AuraAttributeSet.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AbilitySystemComponent.h"
+#include "AttributeSet.h"
+#include "AuraAttributeSet.generated.h"
+
+#define ATTRIBUTE_ACCESSORS(ClassName, PropertyName) \
+	GAMEPLAYATTRIBUTE_PROPERTY_GETTER(ClassName, PropertyName) \
+	GAMEPLAYATTRIBUTE_VALUE_GETTER(PropertyName) \
+	GAMEPLAYATTRIBUTE_VALUE_SETTER(PropertyName) \
+	GAMEPLAYATTRIBUTE_VALUE_INITTER(PropertyName)
+
+
+
+USTRUCT()
+struct FEffectProperties
+{
+	GENERATED_BODY()
+	FEffectProperties(){}
+	
+	FGameplayEffectContextHandle EffectContextHandle;
+	
+	UPROPERTY()
+	UAbilitySystemComponent* SourceASC = nullptr;
+	
+	UPROPERTY()
+	AActor* SourceAvatarActor = nullptr;
+	
+	UPROPERTY()
+	AController* SourceController = nullptr;
+	
+	UPROPERTY()
+	ACharacter* SourceCharacter = nullptr;
+	
+	UPROPERTY()
+	UAbilitySystemComponent* TargetASC = nullptr;
+	
+	UPROPERTY()
+	AActor* TargetAvatarActor = nullptr;
+	
+	UPROPERTY()
+	AController* TargetController = nullptr;
+	
+	UPROPERTY()
+	ACharacter* TargetCharacter = nullptr;
+};
+
+/**
+ * 
+ */
+
+//typedef TBaseStaticDelegateInstance<FGameplayAttribute(),FDefaultDelegateUserPolicy>::FFuncPtr FAttributeFuncPtr;
+
+template<class T>
+using TStaticFuncPtr = typename TBaseStaticDelegateInstance<T,FDefaultDelegateUserPolicy>::FFuncPtr;
+
+UCLASS()
+class AURA_API UAuraAttributeSet : public UAttributeSet
+{
+	GENERATED_BODY()
+	
+public:
+	
+	UAuraAttributeSet();
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+	
+	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
+	
+	virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
+	
+	
+	TMap<FGameplayTag,TStaticFuncPtr<FGameplayAttribute()>> TagsToAttributes;
+	
+	/*
+	 * 主要属性
+	 */
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_Strength, Category = "Primary Attributes")
+	FGameplayAttributeData Strength;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,Strength);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_Intelligence, Category = "Primary Attributes")
+	FGameplayAttributeData Intelligence;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,Intelligence);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_Resilience, Category = "Primary Attributes")
+	FGameplayAttributeData Resilience;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,Resilience);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_Vigor, Category = "Primary Attributes")
+	FGameplayAttributeData Vigor;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,Vigor);
+	
+	/*
+	 * 次级属性
+	 */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_Armor, Category = "Secondary Attributes")
+	FGameplayAttributeData Armor;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,Armor);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_ArmorPenetration, Category = "Secondary Attributes")
+	FGameplayAttributeData ArmorPenetration;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,ArmorPenetration);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_BlockChance, Category = "Secondary Attributes")
+	FGameplayAttributeData BlockChance;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,BlockChance);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_CriticalHitChance, Category = "Secondary Attributes")
+	FGameplayAttributeData CriticalHitChance;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,CriticalHitChance);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_CriticalHitDamage, Category = "Secondary Attributes")
+	FGameplayAttributeData CriticalHitDamage;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,CriticalHitDamage);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_CriticalHitResistance, Category = "Secondary Attributes")
+	FGameplayAttributeData CriticalHitResistance;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,CriticalHitResistance);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_HealthRegeneration, Category = "Secondary Attributes")
+	FGameplayAttributeData HealthRegeneration;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,HealthRegeneration);
+	
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing= OnRep_ManaRegeneration, Category = "Secondary Attributes")
+	FGameplayAttributeData ManaRegeneration;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,ManaRegeneration);
+	
+	UPROPERTY(BlueprintReadOnly,ReplicatedUsing = OnRep_MaxHealth,Category = "Secondary Attributes")
+	FGameplayAttributeData MaxHealth;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,MaxHealth);
+	
+	UPROPERTY(BlueprintReadOnly,ReplicatedUsing = OnRep_MaxMana,Category = "Secondary Attributes")
+	FGameplayAttributeData MaxMana;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,MaxMana);
+	
+	/*
+	 * 抗性属性
+	 */
+	UPROPERTY(BlueprintReadOnly,ReplicatedUsing = OnRep_FireResistance,Category = "Resistance Attributes")
+	FGameplayAttributeData FireResistance;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,FireResistance);
+	
+	UPROPERTY(BlueprintReadOnly,ReplicatedUsing = OnRep_LightningResistance,Category = "Resistance Attributes")
+	FGameplayAttributeData LightningResistance;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,LightningResistance);
+	
+	UPROPERTY(BlueprintReadOnly,ReplicatedUsing = OnRep_ArcaneResistance,Category = "Resistance Attributes")
+	FGameplayAttributeData ArcaneResistance;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,ArcaneResistance);
+	
+	UPROPERTY(BlueprintReadOnly,ReplicatedUsing = OnRep_PhysicalResistance,Category = "Resistance Attributes")
+	FGameplayAttributeData PhysicalResistance;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,PhysicalResistance);
+	/*
+	 * 重要属性
+	 */
+	UPROPERTY(BlueprintReadOnly,ReplicatedUsing = OnRep_Health,Category = "Vital Attributes")
+	FGameplayAttributeData Health;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,Health);
+	
+	UPROPERTY(BlueprintReadOnly,ReplicatedUsing = OnRep_Mana,Category = "Vital Attributes")
+	FGameplayAttributeData Mana;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,Mana);
+	
+	/*
+	 * 元属性(Meta Attributes)
+	 */
+	UPROPERTY(BlueprintReadOnly,Category="Meta Attributes")
+	FGameplayAttributeData IncomingDamage;
+	ATTRIBUTE_ACCESSORS(UAuraAttributeSet,IncomingDamage);
+	
+	
+	
+	
+	
+	
+	UFUNCTION()
+	void OnRep_Health(const FGameplayAttributeData& OldHealth) const;
+	
+
+	
+	UFUNCTION()
+	void OnRep_Mana(const FGameplayAttributeData& OldMana) const;
+	
+
+	
+	
+	UFUNCTION()
+	void OnRep_Strength(const FGameplayAttributeData& OldStrength) const;
+	
+	UFUNCTION()
+	void OnRep_Intelligence(const FGameplayAttributeData& OldIntelligence) const;
+	
+	UFUNCTION()
+	void OnRep_Resilience(const FGameplayAttributeData& OldResilience) const;
+	
+	UFUNCTION()
+	void OnRep_Vigor(const FGameplayAttributeData& OldVigor) const;
+	
+	UFUNCTION()
+	void OnRep_Armor(const FGameplayAttributeData& OldArmor) const;
+	
+	UFUNCTION()
+	void OnRep_ArmorPenetration(const FGameplayAttributeData& OldArmorPenetration) const;
+	
+	UFUNCTION()
+	void OnRep_BlockChance(const FGameplayAttributeData& OldBlockChance) const;
+	
+	UFUNCTION()
+	void OnRep_CriticalHitChance(const FGameplayAttributeData& OldCriticalHitChance) const;
+	
+	UFUNCTION()
+	void OnRep_CriticalHitDamage(const FGameplayAttributeData& OldCriticalHitDamage) const;
+	
+	UFUNCTION()
+	void OnRep_CriticalHitResistance(const FGameplayAttributeData& OldCriticalHitResistance) const;
+	
+	UFUNCTION()
+	void OnRep_HealthRegeneration(const FGameplayAttributeData& OldHealthRegeneration) const;
+	
+	UFUNCTION()
+	void OnRep_ManaRegeneration(const FGameplayAttributeData& OldManaRegeneration) const;
+	
+	UFUNCTION()
+	void OnRep_MaxHealth(const FGameplayAttributeData& OldMaxHealth) const;
+	
+	UFUNCTION()
+	void OnRep_MaxMana(const FGameplayAttributeData& OldMaxMana) const;
+	
+	UFUNCTION()
+	void OnRep_FireResistance(const FGameplayAttributeData& OldFireResistance) const;
+	
+	UFUNCTION()
+	void OnRep_LightningResistance(const FGameplayAttributeData& OldLightningResistance) const;
+	
+	UFUNCTION()
+	void OnRep_ArcaneResistance(const FGameplayAttributeData& OldArcaneResistance) const;
+	
+	UFUNCTION()
+	void OnRep_PhysicalResistance(const FGameplayAttributeData& OldPhysicalResistance) const;
+	
+	
+private:
+	void SetEffectProperties(const FGameplayEffectModCallbackData& Data,FEffectProperties& Props) const;
+	void ShowFloatingText(const FEffectProperties& Props,float Damage,bool bBlockedHit,bool bCriticalHit) const;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\AbilityTasks\TargetDataUnderMouse.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Abilities/Tasks/AbilityTask.h"
+#include "TargetDataUnderMouse.generated.h"
+
+
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMouseTargetDataSignature,const FGameplayAbilityTargetDataHandle&, DataHandle);
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UTargetDataUnderMouse : public UAbilityTask
+{
+	GENERATED_BODY()
+	
+	
+public:
+	
+	
+	UFUNCTION(BlueprintCallable, Category = "Ability|Tasks",meta = (DisplayName = "TargetDataUnderMouse",HidePin = "OwningAbility", DefaultToSelf ="OwningAbility" ,BlueprintInternalUseOnly = "true"))
+	static UTargetDataUnderMouse* CreateTargetDataUnderMouse(UGameplayAbility* OwningAbility);
+	
+	UPROPERTY(BlueprintAssignable)
+	FMouseTargetDataSignature ValidData;
+	
+private:
+	
+	virtual void Activate() override;
+	void SendMouseCursorData();
+	
+	void OnTargetDataReplicatedCallback(const FGameplayAbilityTargetDataHandle& DataHandle,FGameplayTag ActivationTag);
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\Abilties\AuraDamageGameplayAbility.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AbilitySystem/Abilties/AuraGameplayAbility.h"
+#include "AuraDamageGameplayAbility.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraDamageGameplayAbility : public UAuraGameplayAbility
+{
+	GENERATED_BODY()
+public:
+	UFUNCTION(BlueprintCallable)
+	void CauseDamage(AActor* TargetActor);
+protected:
+	
+	UPROPERTY(EditDefaultsOnly,BlueprintReadOnly)
+	TSubclassOf<UGameplayEffect> DamageEffectClass;
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Damage")
+	TMap<FGameplayTag, FScalableFloat> DamageTypes;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\Abilties\AuraGameplayAbility.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Abilities/GameplayAbility.h"
+#include "AuraGameplayAbility.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraGameplayAbility : public UGameplayAbility
+{
+	GENERATED_BODY()
+	
+public:
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Input")
+	FGameplayTag StartupInputTag;
+	
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\Abilties\AuraMeleeAttack.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AbilitySystem/Abilties/AuraDamageGameplayAbility.h"
+#include "AuraMeleeAttack.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraMeleeAttack : public UAuraDamageGameplayAbility
+{
+	GENERATED_BODY()
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\Abilties\AuraProjectileSpell.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AuraDamageGameplayAbility.h"
+#include "AbilitySystem/Abilties/AuraDamageGameplayAbility.h"
+#include "AuraProjectileSpell.generated.h"
+
+class AAuraProjectile;
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraProjectileSpell : public UAuraDamageGameplayAbility
+{
+	GENERATED_BODY()
+	
+	
+protected:
+	
+	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly)
+	TSubclassOf<AAuraProjectile> ProjectileClass;
+
+	UFUNCTION(BlueprintCallable,Category="Projectile")
+	void SpawnProjectile(const FVector& ProjectileTargetLocation);
+
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\Data\AttributeInfo.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
+#include "Engine/DataAsset.h"
+#include "AttributeInfo.generated.h"
+
+
+USTRUCT(BlueprintType)
+struct FAuraAttributeInfo
+{
+	GENERATED_BODY()
+	
+	UPROPERTY(EditDefaultsOnly,BlueprintReadOnly)
+	FGameplayTag AttributeTag = FGameplayTag();
+	
+	UPROPERTY(EditDefaultsOnly,BlueprintReadOnly)
+	FText AttributeName = FText();
+	
+	UPROPERTY(EditDefaultsOnly,BlueprintReadOnly)
+	FText AttributeDescription = FText();
+	
+	UPROPERTY(BlueprintReadOnly)
+	float AttributeValue = 0.0f;
+};
+
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAttributeInfo : public UDataAsset
+{
+	GENERATED_BODY()
+	
+public:
+	
+	FAuraAttributeInfo FindAttributeInfoForTag(const FGameplayTag AttributeTag,bool bLogNotFound = false) const;
+	
+	UPROPERTY(EditDefaultsOnly,BlueprintReadOnly)
+	TArray<FAuraAttributeInfo> AttributeInformation;
+	
+	
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\Data\CharacterClassInfo.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/DataAsset.h"
+#include "CharacterClassInfo.generated.h"
+
+class UGameplayAbility;
+class UGameplayEffect;
+
+UENUM(BlueprintType)
+enum class ECharacterClass : uint8
+{
+	Elementalist,
+	Warrior,
+	Ranger
+};
+
+USTRUCT(BlueprintType)
+struct FCharacterClassDefaultInfo
+{
+	GENERATED_BODY()
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Class Defaults")
+	TSubclassOf<UGameplayEffect> PrimaryAttributes;
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Class Defaults")
+	TArray<TSubclassOf<UGameplayAbility>>StartupAbilities;
+};
+
+
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UCharacterClassInfo : public UDataAsset
+{
+	GENERATED_BODY()
+
+	
+public:
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Character Class Defaults")
+	TMap<ECharacterClass,FCharacterClassDefaultInfo> CharacterClassInformation;
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Common Class Defaults")
+	TSubclassOf<UGameplayEffect> SecondaryAttributes;
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Common Class Defaults")
+	TSubclassOf<UGameplayEffect> VitalAttributes;
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Common Class Defaults")
+	TArray<TSubclassOf<UGameplayAbility>> CommonAbilities;
+	
+	FCharacterClassDefaultInfo GetClassDefaultInfo(const ECharacterClass& CharacterClass);
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Common Class Defaults|Damage")
+	TObjectPtr<UCurveTable> DamageCalculationCoefficients;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\ExecCalc\ExecCalc_Damage.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayEffectExecutionCalculation.h"
+#include "ExecCalc_Damage.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UExecCalc_Damage : public UGameplayEffectExecutionCalculation
+{
+	GENERATED_BODY()
+	
+public:
+	
+	UExecCalc_Damage();
+	virtual void Execute_Implementation(const FGameplayEffectCustomExecutionParameters& ExecutionParams, FGameplayEffectCustomExecutionOutput& OutExecutionOutput) const override;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\ModMagCalc\MMC_MaxHealth.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayModMagnitudeCalculation.h"
+#include "MMC_MaxHealth.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UMMC_MaxHealth : public UGameplayModMagnitudeCalculation
+{
+	GENERATED_BODY()
+	
+public:
+	UMMC_MaxHealth();
+	
+	virtual float CalculateBaseMagnitude_Implementation(const FGameplayEffectSpec& Spec) const override;
+	
+private:
+	
+	FGameplayEffectAttributeCaptureDefinition VigorDef;
+	
+	
+	
+	
+	
+	
+	
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AbilitySystem\ModMagCalc\MMC_MaxMana.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayModMagnitudeCalculation.h"
+#include "MMC_MaxMana.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UMMC_MaxMana : public UGameplayModMagnitudeCalculation
+{
+	GENERATED_BODY()
+	
+public:
+	UMMC_MaxMana();	
+	
+	virtual float CalculateBaseMagnitude_Implementation(const FGameplayEffectSpec& Spec) const override;
+	
+private:
+	
+	FGameplayEffectAttributeCaptureDefinition IntDef;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Actor\AuraEffectActor.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "ActiveGameplayEffectHandle.h"
+#include "GameFramework/Actor.h"
+#include "AuraEffectActor.generated.h"
+
+
+class UAbilitySystemComponent;
+class UGameplayEffect;
+
+UENUM(BlueprintType)
+enum class EEffectApplicationPolicy : uint8
+{
+	ApplyOnOverlap,
+	ApplyOnEndOverlap,
+	DoNotApply
+};
+
+UENUM(BlueprintType)
+enum class EEffectRemovalPolicy : uint8
+{
+	RemoveOnEndOverlap,
+	DoNotRemove
+};
+
+UCLASS()
+class AURA_API AAuraEffectActor : public AActor
+{
+	GENERATED_BODY()
+	
+public:	
+	
+	AAuraEffectActor();
+
+
+protected:
+	
+	virtual void BeginPlay() override;
+
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	bool bDestroyOnEffectApplication = false;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	bool bApplyEffectsToEnemies = false;
+	
+	UFUNCTION(BlueprintCallable)
+	void ApplyEffectToTarget(AActor* TargetActor,TSubclassOf<UGameplayEffect> GameplayEffectClass);
+	
+	UFUNCTION(BlueprintCallable)
+	void OnOverlap(AActor* TargetActor);
+	
+	UFUNCTION(BlueprintCallable)
+	void OnEndOverlap(AActor* TargetActor);
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	TSubclassOf<UGameplayEffect> InstantGameplayEffectClass;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	EEffectApplicationPolicy InstantEffectApplicationPolicy = EEffectApplicationPolicy::DoNotApply;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	TSubclassOf<UGameplayEffect> DurationGameplayEffectClass;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	EEffectApplicationPolicy DurationEffectApplicationPolicy = EEffectApplicationPolicy::DoNotApply;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	TSubclassOf<UGameplayEffect> InfiniteGameplayEffectClass;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	EEffectApplicationPolicy InfiniteEffectApplicationPolicy = EEffectApplicationPolicy::DoNotApply;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	EEffectRemovalPolicy InfiniteEffectRemovalPolicy = EEffectRemovalPolicy::RemoveOnEndOverlap;
+
+	TMap<FActiveGameplayEffectHandle,UAbilitySystemComponent*> ActiveEffectHandles;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly, Category = "Applied Effects")
+	float ActorLevel = 1.f;
+
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Actor\AuraProjectile.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayEffectTypes.h"
+#include "GameFramework/Actor.h"
+#include "AuraProjectile.generated.h"
+
+class USphereComponent;
+class UProjectileMovementComponent;
+class UNiagaraSystem;
+
+
+UCLASS()
+class AURA_API AAuraProjectile : public AActor
+{
+	GENERATED_BODY()
+	
+public:	
+	
+	AAuraProjectile();
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UProjectileMovementComponent> ProjectileMovement;
+	
+	UPROPERTY(BlueprintReadWrite,meta=(ExposeOnSpawn = true))
+	FGameplayEffectSpecHandle DamageEffectSpecHandle;
+protected:
+	
+	virtual void BeginPlay() override;
+	virtual void Destroyed() override;
+	
+	UFUNCTION()
+	void OnSphereOverlap(UPrimitiveComponent* OverlappedComponent,AActor* OtherActor,UPrimitiveComponent* OtherComp,int32 OtherBodyIndex,bool bFromSweep,const FHitResult& SweepResult);
+	
+private:
+	
+	UPROPERTY(EditDefaultsOnly)
+	float LifeSpan = 15.f; 
+	
+	bool bHit = false; 
+	
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<USphereComponent> Sphere;
+	
+	UPROPERTY(EditAnywhere)
+	TObjectPtr<UNiagaraSystem> ImpactEffect;
+	
+	UPROPERTY(EditAnywhere)
+	TObjectPtr<USoundBase> ImpactSound;
+	
+	UPROPERTY(EditAnywhere)
+	TObjectPtr<USoundBase> LoopingSound;
+	
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> LoopingSoundComponent;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AI\AuraAIController.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AIController.h"
+#include "AuraAIController.generated.h"
+class UBlackboardComponent;
+class UBehaviorTreeComponent;
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API AAuraAIController : public AAIController
+{
+	GENERATED_BODY()
+	
+	
+public:
+	AAuraAIController();
+	
+	
+protected:
+	
+	
+	UPROPERTY()
+	TObjectPtr<UBehaviorTreeComponent> BehaviorTreeComponent;
+	
+	
+	
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AI\BTService_FindNearestPlayer.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "BehaviorTree/Services/BTService_BlueprintBase.h"
+#include "BTService_FindNearestPlayer.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UBTService_FindNearestPlayer : public UBTService_BlueprintBase
+{
+	GENERATED_BODY()
+	
+protected:
+	
+	virtual void TickNode(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds) override;
+	
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	FBlackboardKeySelector TargetToFollowSelector;
+	
+	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	FBlackboardKeySelector DistanceToTargetSelector;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\AI\BTTask_Attack.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "BehaviorTree/Tasks/BTTask_BlueprintBase.h"
+#include "BTTask_Attack.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UBTTask_Attack : public UBTTask_BlueprintBase
+{
+	GENERATED_BODY()
+	
+	virtual EBTNodeResult::Type ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;
+
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Character\AuraCharacter.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Character/AuraCharacterBase.h"
+#include "AuraCharacter.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API AAuraCharacter : public AAuraCharacterBase
+{
+
+	GENERATED_BODY()
+	
+public:
+	AAuraCharacter();
+	
+	virtual void PossessedBy(AController* NewController) override;
+	virtual void OnRep_PlayerState() override;
+	
+	/*Combat接口*/
+	virtual int32 GetPlayerLevel() override;
+	
+	
+private:
+	virtual void InitAbilityActorInfo() override;
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Character\AuraCharacterBase.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Character.h"
+#include "AbilitySystemInterface.h"  
+#include "Interaction/CombatInterface.h"
+#include "AuraCharacterBase.generated.h"
+
+
+class UGameplayAbility;
+class UGameplayEffect;
+class UAttributeSet;
+class UAuraAbilitySystemComponent;
+class UAnimMontage;
+
+UCLASS(Abstract)
+class AURA_API AAuraCharacterBase : public ACharacter,public IAbilitySystemInterface,public ICombatInterface
+{
+	GENERATED_BODY()
+
+public:
+	
+	AAuraCharacterBase();
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+	UAttributeSet* GetAttributeSet() const{return AttributeSet;};
+
+	/*Combat Interface*/
+    	virtual UAnimMontage* GetHitReactMontage_Implementation() override;
+    	virtual void Die() override;
+    	virtual FVector GetCombatSocketLocation_Implementation(const FGameplayTag& MontageTag) override;
+    	virtual bool IsDead_Implementation() const override;
+    	virtual AActor* GetAvatar_Implementation();
+		virtual TArray<FTaggedMontage> GetAttackMontages_Implementation() override;
+	/*End Combat Interface*/
+	
+	
+	UFUNCTION(NetMulticast,Reliable)
+	virtual void MulticastHandleDeath();
+	
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	TArray<FTaggedMontage> AttackMontages;
+	
+protected:
+	
+	virtual void BeginPlay() override;
+	
+	UPROPERTY(EditAnywhere,Category="Combat")
+	TObjectPtr<USkeletalMeshComponent> Weapon;
+	
+	UPROPERTY(EditAnywhere,Category="Combat")
+	FName WeaponTipSocketName;
+	
+	UPROPERTY(EditAnywhere,Category="Combat")
+	FName LeftHandSocketName;
+	
+	UPROPERTY(EditAnywhere,Category="Combat")
+	FName RightHandSocketName;
+	
+	bool bDead = false;
+	
+	UPROPERTY()
+	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
+
+	UPROPERTY()
+	TObjectPtr<UAttributeSet> AttributeSet;
+	
+	virtual void InitAbilityActorInfo();
+	
+	UPROPERTY(BlueprintReadOnly,EditAnywhere,Category="Attributes")
+	TSubclassOf<UGameplayEffect> DefaultPrimaryAttributes;
+	
+	UPROPERTY(BlueprintReadOnly,EditAnywhere,Category="Attributes")
+	TSubclassOf<UGameplayEffect> DefaultSecondaryAttributes;
+	
+	UPROPERTY(BlueprintReadOnly,EditAnywhere,Category="Attributes")
+	TSubclassOf<UGameplayEffect> DefaultVitalAttributes;
+	
+	void ApplyEffectToSelf(TSubclassOf<UGameplayEffect> GameplayEffectClass, float Level) const;
+	virtual void InitializeDefaultAttributes() const;
+	
+	void AddCharacterAbilities();
+	
+	
+	/*溶解效果*/
+	
+	void Dissolve();
+	
+	UFUNCTION(BlueprintImplementableEvent)
+	void StartDissolveTimeline(UMaterialInstanceDynamic* DynamicMaterialsInstance);
+	
+	UFUNCTION(BlueprintImplementableEvent)
+	void StartWeaponDissolveTimeline(UMaterialInstanceDynamic* DynamicMaterialsInstance);
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly)
+	TObjectPtr<UMaterialInstance> DissolveMaterialInstance;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly)
+	TObjectPtr<UMaterialInstance> WeaponDissolveMaterialInstance;
+	
+	
+private:
+	
+	UPROPERTY(EditAnywhere,Category="Attributes")
+	TArray<TSubclassOf<UGameplayAbility>> StartupAbilities;
+	
+	UPROPERTY(EditAnywhere,Category="Combat")
+	TObjectPtr<UAnimMontage> HitReactMontage;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Character\AuraEnemy.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Character/AuraCharacterBase.h"
+#include "Interaction/EnemyInterface.h"
+#include "UI/WidgetController/OverlayWidgetController.h"
+#include "AbilitySystem/Data/CharacterClassInfo.h"
+#include "AuraEnemy.generated.h"
+
+class UWidgetComponent;
+class UBehaviorTree;
+class AAuraAIController;
+/**
+ * 
+ */
+UCLASS()
+class AURA_API AAuraEnemy : public AAuraCharacterBase,public IEnemyInterface
+{
+	GENERATED_BODY()
+	
+public:
+	
+	AAuraEnemy();
+	virtual void PossessedBy(AController* NewController) override;
+	/*敌人接口*/
+	virtual void HighLightActor() override;
+	virtual void UnHighLightActor() override;
+	
+	/*Combat接口*/
+	virtual int32 GetPlayerLevel() override;
+	virtual void Die() override;
+	virtual void SetCombatTarget_Implementation(AActor* InCombatTarget) override;
+	virtual AActor* GetCombatTarget_Implementation() const override;
+	
+	UPROPERTY(BlueprintAssignable)
+	FOnAttributeChangedSignature OnHealthChanged;
+	
+	UPROPERTY(BlueprintAssignable)
+	FOnAttributeChangedSignature OnMaxHealthChanged;
+	
+	void HitReactTagChanged(const FGameplayTag CallbackTag,int32 NewCount);
+	
+	UPROPERTY(BlueprintReadOnly,Category="Combat")
+	bool bHitReacting = false;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly,Category="Combat")
+	float BaseWalkSpeed = 250.f;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly,Category="Combat")
+	float LifeSpan = 5.f;
+	
+	UPROPERTY(BlueprintReadWrite,Category="Combat")
+	TObjectPtr<AActor> CombatTarget;
+protected:
+	
+	virtual void BeginPlay() override;
+	virtual void InitAbilityActorInfo() override;
+	virtual void InitializeDefaultAttributes() const override;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly,Category="Character Class Defaults")
+	int32 Level = 1;
+	
+	UPROPERTY(EditAnywhere,BlueprintReadOnly,Category="Character Class Defaults")
+	ECharacterClass CharacterClass = ECharacterClass::Warrior;
+	
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly)
+	TObjectPtr<UWidgetComponent> HealthBar;
+	
+	UPROPERTY(EditAnywhere,Category="AI")
+	TObjectPtr<UBehaviorTree> BehaviorTree;
+	
+	UPROPERTY()
+	TObjectPtr<AAuraAIController> AuraAIController;
+	
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Game\AuraGameModeBase.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/GameModeBase.h"
+#include "AuraGameModeBase.generated.h"
+
+class UCharacterClassInfo;
+/**
+ * 
+ */
+UCLASS()
+class AURA_API AAuraGameModeBase : public AGameModeBase
+{
+	GENERATED_BODY()
+
+public:
+	
+	UPROPERTY(EditDefaultsOnly,Category = "Character Class Defaults")
+	TObjectPtr<UCharacterClassInfo> CharacterClassInfo;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Input\AuraInputComponent.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AuraInputConfig.h"
+#include "EnhancedInputComponent.h"
+#include "AuraInputComponent.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraInputComponent : public UEnhancedInputComponent
+{
+	GENERATED_BODY()
+	
+	
+public:
+	
+	
+	template<class UserClass,typename PressedFuncType,typename ReleasedFuncType,typename HeldFuncType>
+	void BindAbilityActions(const UAuraInputConfig* InputConfig,UserClass* Object,PressedFuncType PressedFunc,ReleasedFuncType ReleasedFunc,HeldFuncType HeldFunc);
+
+
+};
+
+template <class UserClass, typename PressedFuncType, typename ReleasedFuncType, typename HeldFuncType>
+void UAuraInputComponent::BindAbilityActions(const UAuraInputConfig* InputConfig, UserClass* Object,
+	PressedFuncType PressedFunc, ReleasedFuncType ReleasedFunc, HeldFuncType HeldFunc)
+{
+	check(InputConfig);
+	for (const FAuraInputAction& Action : InputConfig->AbilityInputActions)
+	{
+		if (Action.InputAction && Action.InputTag.IsValid())
+		{
+			if (PressedFunc)
+			{
+				BindAction(Action.InputAction,ETriggerEvent::Started,Object,PressedFunc,Action.InputTag);
+			}
+			if (ReleasedFunc)
+			{
+				BindAction(Action.InputAction,ETriggerEvent::Completed,Object,ReleasedFunc,Action.InputTag);
+			}
+			if (HeldFunc)
+			{
+				BindAction(Action.InputAction,ETriggerEvent::Triggered,Object,HeldFunc,Action.InputTag);
+			}
+		}
+	}
+}
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Input\AuraInputConfig.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
+#include "Engine/DataAsset.h"
+#include "AuraInputConfig.generated.h"
+
+USTRUCT(BlueprintType)
+struct FAuraInputAction
+{
+	GENERATED_BODY()
+	
+	UPROPERTY(EditDefaultsOnly)
+	const class UInputAction* InputAction = nullptr;
+	
+	UPROPERTY(EditDefaultsOnly)
+	FGameplayTag InputTag = FGameplayTag();
+};
+
+
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraInputConfig : public UDataAsset
+{
+	GENERATED_BODY()
+	
+public:
+	
+	const UInputAction* FindAbilityInputActionForTag(const FGameplayTag& InputTag,bool bLogNotFound = false) const;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
+	TArray<FAuraInputAction> AbilityInputActions;
+	
+	
+	
+	
+	
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Interaction\CombatInterface.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
+#include "UObject/Interface.h"
+#include "CombatInterface.generated.h"
+
+USTRUCT(BlueprintType)
+struct FTaggedMontage
+{
+	GENERATED_BODY()
+	
+	UPROPERTY(EditDefaultsOnly,BlueprintReadOnly)
+	UAnimMontage* Montage = nullptr;
+	
+	UPROPERTY(EditDefaultsOnly,BlueprintReadOnly)
+	FGameplayTag MontageTag;
+};
+
+
+
+
+
+
+
+// This class does not need to be modified.
+UINTERFACE(MinimalAPI,BlueprintType)
+class UCombatInterface : public UInterface
+{
+	GENERATED_BODY()
+};
+
+
+class UAnimMontage;
+/**
+ * 
+ */
+class AURA_API ICombatInterface
+{
+	GENERATED_BODY()
+
+	// Add interface functions to this class. This is the class that will be inherited to implement this interface.
+public:
+	virtual int32 GetPlayerLevel();
+	
+	UFUNCTION(BlueprintNativeEvent,BlueprintCallable)
+	FVector GetCombatSocketLocation(const FGameplayTag& MontageTag);
+	
+	UFUNCTION(BlueprintImplementableEvent,BlueprintCallable)
+	void UpdateFacingTarget(const FVector& Target);
+	
+	UFUNCTION(BlueprintNativeEvent,BlueprintCallable)
+	UAnimMontage* GetHitReactMontage();
+	
+	
+	virtual void Die() = 0;
+	
+	UFUNCTION(BlueprintNativeEvent,BlueprintCallable)
+	bool IsDead() const;
+	
+	UFUNCTION(BlueprintNativeEvent,BlueprintCallable)
+	AActor* GetAvatar();
+	
+	UFUNCTION(BlueprintNativeEvent,BlueprintCallable)
+	TArray<FTaggedMontage> GetAttackMontages();
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Interaction\EnemyInterface.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "UObject/Interface.h"
+#include "EnemyInterface.generated.h"
+
+// This class does not need to be modified.
+UINTERFACE(MinimalAPI)
+class UEnemyInterface : public UInterface
+{
+	GENERATED_BODY()
+};
+
+/**
+ * 
+ */
+class AURA_API IEnemyInterface
+{
+	GENERATED_BODY()
+
+	// Add interface functions to this class. This is the class that will be inherited to implement this interface.
+public:
+	virtual void HighLightActor() = 0;
+	virtual void UnHighLightActor() = 0;
+	
+	UFUNCTION(BlueprintCallable,BlueprintNativeEvent)
+	void SetCombatTarget(AActor* InCombatTarget);
+	
+	UFUNCTION(BlueprintCallable,BlueprintNativeEvent)
+	AActor* GetCombatTarget() const ;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Player\AuraPlayerController.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
+#include "GameFramework/PlayerController.h"
+
+#include "AuraPlayerController.generated.h"
+
+
+class UDamageTextComponent;
+class UAuraInputConfig;
+class UInputMappingContext;
+class UInputAction;
+struct FInputActionValue;
+class IEnemyInterface;
+class UAuraAbilitySystemComponent;
+class USplineComponent;
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API AAuraPlayerController : public APlayerController
+{
+	GENERATED_BODY()
+	
+public:
+	
+	AAuraPlayerController();
+	virtual void PlayerTick(float DeltaTime) override;
+	
+	UFUNCTION(Client, Reliable)
+	void ShowDamageNumber(float DamageAmount,ACharacter* TargetCharacter,bool bBlockedHit,bool bCriticalHit);
+protected:
+	
+	virtual void BeginPlay() override;
+	virtual void SetupInputComponent() override;
+	
+private:
+	UPROPERTY(EditAnywhere,Category="Input")
+	TObjectPtr<UInputMappingContext> AuraContext;
+	
+	UPROPERTY(EditAnywhere,Category="Input")
+	TObjectPtr<UInputAction> MoveAction;
+	
+	UPROPERTY(EditAnywhere,Category="Input")
+	TObjectPtr<UInputAction> ShiftAction;
+	
+	void ShiftPressed(){bShiftKeyDown = true;};
+	void ShiftReleased(){bShiftKeyDown = false;};
+	bool bShiftKeyDown = false;
+	
+	
+	void Move(const FInputActionValue& InputActionValue);
+	
+	
+	void CursorTrace();
+	IEnemyInterface* LastActor;
+	IEnemyInterface* ThisActor;
+	FHitResult CursorHit;
+	
+	void AbilityInputTagPressed(FGameplayTag InputTag);
+	void AbilityInputTagReleased(FGameplayTag InputTag);
+	void AbilityInputTagHeld(FGameplayTag InputTag);
+	
+	UPROPERTY(EditDefaultsOnly,Category="Input")
+	TObjectPtr<UAuraInputConfig> InputConfig;
+	
+	UPROPERTY()
+	TObjectPtr<UAuraAbilitySystemComponent> AuraAbilitySystemComponent;
+	
+	UAuraAbilitySystemComponent* GetASC();
+	
+	
+	FVector CachedDestination = FVector::ZeroVector;
+	float FollowTime = 0.0f;
+	float ShortPressThreshold = 0.5f;
+	bool bAutoRunning = false;
+	bool bTargeting = false;
+	
+	UPROPERTY(EditDefaultsOnly)
+	float AutoRunAcceptanceRadius = 50.f;
+	
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<USplineComponent> Spline;
+	
+	void AutoRun();
+	
+	UPROPERTY(EditDefaultsOnly)
+	TSubclassOf<UDamageTextComponent> DamageTextComponentClass;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\Player\AuraPlayerState.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "AbilitySystemInterface.h"
+#include "GameFramework/PlayerState.h"
+#include "AuraPlayerState.generated.h"
+
+class UAttributeSet;
+class UAuraAbilitySystemComponent;
+/**
+ * 
+ */
+UCLASS()
+class AURA_API AAuraPlayerState : public APlayerState,public IAbilitySystemInterface
+{
+	GENERATED_BODY()
+	
+	
+public:
+	AAuraPlayerState();
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+	UAttributeSet* GetAttributeSet() const{return AttributeSet;};
+	
+	FORCEINLINE int32 GetPlayerLevel() const{return Level;};
+	
+protected:
+	
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UAuraAbilitySystemComponent> AbilitySystemComponent;
+
+	UPROPERTY()
+	TObjectPtr<UAttributeSet> AttributeSet;
+	
+private:
+	
+	UPROPERTY(VisibleAnywhere,ReplicatedUsing=OnRep_Level)
+	int32 Level = 1;
+	
+	UFUNCTION()
+	void OnRep_Level(int32 OldLevel);
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\UI\HUD\AuraHUD.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/HUD.h"
+#include "AuraHUD.generated.h"
+
+class UAttributeMenuWidgetController;
+class UAttributeSet;
+class UAbilitySystemComponent;
+struct FWidgetControllerParams;
+class UOverlayWidgetController;
+class UAuraUserWidget;
+
+struct FWidgetControllerParams;
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API AAuraHUD : public AHUD
+{
+	GENERATED_BODY()
+	
+public:
+	
+	UOverlayWidgetController* GetOverlayWidgetController(const FWidgetControllerParams& WCParams);
+	
+	UAttributeMenuWidgetController* GetAttributeMenuWidgetController(const FWidgetControllerParams& WCParams);
+	void InitOverlay(APlayerController* PC,APlayerState* PS,UAbilitySystemComponent* ASC,UAttributeSet* AS);
+	
+private:
+	
+	UPROPERTY()
+	TObjectPtr<UAuraUserWidget> OverlayWidget;
+	
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<UAuraUserWidget> OverlayWidgetClass;
+	
+	UPROPERTY()
+	TObjectPtr<UOverlayWidgetController>OverlayWidgetController;
+	
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<UOverlayWidgetController>OverlayWidgetControllerClass;
+	
+	UPROPERTY()
+    TObjectPtr<UAttributeMenuWidgetController> AttributeMenuWidgetController;
+
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<UAttributeMenuWidgetController>AttributeMenuWidgetControllerClass;
+};
+
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\UI\Widget\AuraUserWidget.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Blueprint/UserWidget.h"
+#include "AuraUserWidget.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraUserWidget : public UUserWidget
+{
+	GENERATED_BODY()
+
+
+public:
+	UFUNCTION(BlueprintCallable)
+	void SetWidgetController(UObject* InWidgetController);
+	
+	UPROPERTY(BlueprintReadOnly)
+	TObjectPtr<UObject> WidgetController;
+	
+protected:
+	
+	UFUNCTION(BlueprintImplementableEvent)
+	void WidgetControllerSet();
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\UI\Widget\DamageTextComponent.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Components/WidgetComponent.h"
+#include "DamageTextComponent.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UDamageTextComponent : public UWidgetComponent
+{
+	GENERATED_BODY()
+	
+public:
+	
+	UFUNCTION(BlueprintCallable,BlueprintImplementableEvent)
+	void SetDamageText(float Damage,bool bBlockedHit,bool bCriticalHit);
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\UI\WidgetController\AttributeMenuWidgetController.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "UI/WidgetController/AuraWidgetController.h"
+#include "AttributeMenuWidgetController.generated.h"
+
+struct FGameplayTag;
+struct FGameplayAttribute;
+class UAttributeInfo;
+struct FAuraAttributeInfo;
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAttributeInfoSignature, const FAuraAttributeInfo&,Info);
+
+/**
+ * 
+ */
+UCLASS(Blueprintable,BlueprintType)
+class AURA_API UAttributeMenuWidgetController : public UAuraWidgetController
+{
+	GENERATED_BODY()
+	
+	
+public:
+	
+	virtual void BindCallbacksToDependencies() override;
+	virtual void BroadcastInitialValues() override;
+	
+	UPROPERTY(BlueprintAssignable,Category="GAS|Attributes")
+	FAttributeInfoSignature AttributeInfoDelegate;
+	
+protected:
+	
+	UPROPERTY(EditDefaultsOnly)
+	TObjectPtr<UAttributeInfo> AttributeInfo;
+	
+	
+private:
+	
+	void BroadcastAttributeInfo(const FGameplayTag& AttributeTag,const FGameplayAttribute& Attribute) const;
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\UI\WidgetController\AuraWidgetController.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "UObject/NoExportTypes.h"
+#include "AuraWidgetController.generated.h"
+
+class UAttributeSet;
+class UAbilitySystemComponent;
+
+USTRUCT(BlueprintType)
+struct FWidgetControllerParams
+{
+	GENERATED_BODY()
+	
+	FWidgetControllerParams();
+	FWidgetControllerParams(APlayerController* PC,APlayerState* PS,UAbilitySystemComponent* ASC,UAttributeSet* AS) 
+	: PlayerController(PC),PlayerState(PS),AbilitySystemComponent(ASC),AttributeSet(AS){}
+
+	UPROPERTY(EditAnywhere,BlueprintReadWrite)
+	TObjectPtr<APlayerController> PlayerController = nullptr;
+
+	UPROPERTY(BlueprintReadWrite,EditAnywhere)
+	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent = nullptr;
+	
+	UPROPERTY(BlueprintReadWrite,EditAnywhere)
+	TObjectPtr<UAttributeSet> AttributeSet = nullptr;
+	
+	UPROPERTY(BlueprintReadWrite,EditAnywhere)
+	TObjectPtr<APlayerState> PlayerState = nullptr;
+};
+
+
+/**
+ * 
+ */
+UCLASS()
+class AURA_API UAuraWidgetController : public UObject
+{
+	GENERATED_BODY()
+public:
+	
+	UFUNCTION(BlueprintCallable)
+	void SetWidgetControllerParams(const FWidgetControllerParams& WCParams);
+	
+	UFUNCTION(BlueprintCallable)
+	virtual void BroadcastInitialValues();
+	virtual void BindCallbacksToDependencies();
+	
+protected:
+	
+	UPROPERTY(BlueprintReadOnly,Category="WidgetController")
+	TObjectPtr<APlayerController> PlayerController;
+	
+	UPROPERTY(BlueprintReadOnly,Category="WidgetController")
+	TObjectPtr<APlayerState> PlayerState;
+	
+	UPROPERTY(BlueprintReadOnly,Category="WidgetController")
+	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
+	
+	UPROPERTY(BlueprintReadOnly,Category="WidgetController")
+	TObjectPtr<UAttributeSet> AttributeSet; 
+};
+
+
+================================================================================
+File: E:\UE5\Projects\MyAura\Aura\Source\Aura\Public\UI\WidgetController\OverlayWidgetController.h
+================================================================================
+
+
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
+#include "UI/WidgetController/AuraWidgetController.h"
+#include "OverlayWidgetController.generated.h"
+
+
+class UAuraUserWidget;
+
+USTRUCT(BlueprintType)
+struct FUIWidgetRow:public FTableRowBase
+{
+	GENERATED_BODY()
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FGameplayTag MessageTag = FGameplayTag();
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FText  Message = FText();
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TSubclassOf<UAuraUserWidget> MessageWidget;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)	
+	UTexture2D* Image = nullptr; 
+};
+
+struct FOnAttributeChangeData;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAttributeChangedSignature, float, NewHealth);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMessageWidgetRowSignature, FUIWidgetRow, Row);
+
+/**
+ * 
+ */
+UCLASS(Blueprintable,BlueprintType)
+class AURA_API UOverlayWidgetController : public UAuraWidgetController
+{
+	GENERATED_BODY()
+
+public:
+	virtual void BroadcastInitialValues();
+	
+	virtual void BindCallbacksToDependencies() override;
+	
+	UPROPERTY(BlueprintAssignable,Category="GAS|Attributes")
+	FOnAttributeChangedSignature OnHealthChanged;
+	
+	UPROPERTY(BlueprintAssignable,Category="GAS|Attributes")
+	FOnAttributeChangedSignature OnMaxHealthChanged;
+	
+	UPROPERTY(BlueprintAssignable,Category="GAS|Attributes")
+	FOnAttributeChangedSignature OnManaChanged;
+	
+	UPROPERTY(BlueprintAssignable,Category="GAS|Attributes")
+	FOnAttributeChangedSignature OnMaxManaChanged;
+	
+	UPROPERTY(BlueprintAssignable,Category="GAS|Messages")
+	FMessageWidgetRowSignature MessageWidgetRowDelegate;
+	
+protected:
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,Category="WidgetData")
+	TObjectPtr<UDataTable> MessageWidgetDataTable;
+	
+	template<typename T>
+	T* GetDataTableRowByTag(UDataTable* DataTable,const FGameplayTag& Tag);
+};
+
+template <typename T>
+T* UOverlayWidgetController::GetDataTableRowByTag(UDataTable* DataTable, const FGameplayTag& Tag)
+{
+	return DataTable->FindRow<T>(Tag.GetTagName(),TEXT(""));
+}
