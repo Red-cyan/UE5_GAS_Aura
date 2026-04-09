@@ -193,22 +193,46 @@ void FAuraGameplayTags::InitializeNativeGameplayTags()
 	);
 	
 	/*
-	* 蒙太奇
+	* Combat Sockets
 	*/
-	GameplayTags.Montage_Attack_Weapon = UGameplayTagsManager::Get().AddNativeGameplayTag(
-	FName("Montage.Attack.Weapon"),
+	GameplayTags.CombatSocket_Weapon = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("CombatSocket.Weapon"),
 	FString(TEXT("武器攻击"))
 	);
 	
-	GameplayTags.Montage_Attack_LeftHand = UGameplayTagsManager::Get().AddNativeGameplayTag(
-	FName("Montage.Attack.LeftHand"),
+	GameplayTags.CombatSocket_LeftHand = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("CombatSocket.LeftHand"),
 	FString(TEXT("左手攻击"))
 	);
 	
-	GameplayTags.Montage_Attack_RightHand = UGameplayTagsManager::Get().AddNativeGameplayTag(
-	FName("Montage.Attack.RightHand"),
+	GameplayTags.CombatSocket_RightHand = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("CombatSocket.RightHand"),
 	FString(TEXT("右手攻击"))
 	);
+	
+	/*
+	 * 蒙太奇Tags
+	 */
+	GameplayTags.Montage_Attack_1 = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.1"),
+	FString(TEXT("攻击1"))
+	);
+	
+	GameplayTags.Montage_Attack_2 = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.2"),
+	FString(TEXT("攻击2"))
+	);
+	
+	GameplayTags.Montage_Attack_3 = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.3"),
+	FString(TEXT("攻击3"))
+	);
+	
+	GameplayTags.Montage_Attack_4 = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Montage.Attack.4"),
+	FString(TEXT("攻击4"))
+	);
+	
 }
 
 
