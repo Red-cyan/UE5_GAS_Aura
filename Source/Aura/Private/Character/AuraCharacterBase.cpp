@@ -101,7 +101,7 @@ TArray<FTaggedMontage> AAuraCharacterBase::GetAttackMontages_Implementation()
 
 UNiagaraSystem* AAuraCharacterBase::GetBloodEffect_Implementation()
 {
-	return BloodEffect;
+	return ImpactEffect;
 }
 
 FTaggedMontage AAuraCharacterBase::GetTaggedMontageByTag_Implementation(const FGameplayTag& MontageTag)
