@@ -210,6 +210,12 @@ void FAuraGameplayTags::InitializeNativeGameplayTags()
 	FString(TEXT("右手攻击"))
 	);
 	
+	GameplayTags.CombatSocket_Tail = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("CombatSocket.Tail"),
+	FString(TEXT("尾巴攻击"))
+	);
+	
+	
 	/*
 	 * 蒙太奇Tags
 	 */
