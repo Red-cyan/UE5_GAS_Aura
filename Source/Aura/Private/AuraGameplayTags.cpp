@@ -192,6 +192,11 @@ void FAuraGameplayTags::InitializeNativeGameplayTags()
 	FString(TEXT("攻击标签"))
 	);
 	
+	GameplayTags.Abilities_Summon = UGameplayTagsManager::Get().AddNativeGameplayTag(
+	FName("Abilities.Summon"),
+	FString(TEXT("召唤标签"))
+	);
+	
 	/*
 	* Combat Sockets
 	*/
